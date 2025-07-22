@@ -1,3 +1,26 @@
+# =============================================================================
+# DASHBOARD ANALISIS DATA SOCIAL VULNERABILITY INDEX (SoVI)
+# =============================================================================
+# 
+# Metadata Struktural:
+# Tujuan       : Analisis komprehensif data SoVI dengan uji statistik lengkap
+# Sumber Data  : Social Vulnerability Index dataset
+# Referensi    : https://www.sciencedirect.com/science/article/pii/S2352340921010180
+# Struktur Data: 
+#   - Variabel numerik: berbagai indikator kerentanan sosial
+#   - Data spasial: informasi geografis kabupaten/kota
+#   - Matriks jarak: untuk analisis spasial lanjutan
+# 
+# Fitur Utama:
+# 1. Persiapan Data: Pembersihan NA dan outlier dengan metode IQR
+# 2. Manajemen Data: Kategorisasi variabel kontinu untuk analisis grup
+# 3. Eksplorasi Data: Statistik deskriptif dan visualisasi interaktif
+# 4. Uji Asumsi: Normalitas (Shapiro-Wilk) dan homogenitas (Levene)
+# 5. Uji Inferensial: t-test, proporsi, varians, ANOVA, regresi berganda
+# 6. Visualisasi: Histogram, boxplot, dan peta tematik terintegrasi
+# 7. Export: Data (XLS/CSV/SAV) dan hasil analisis (PDF/PNG)
+# =============================================================================
+
 # Load pustaka yang diperlukan
 library(shiny)
 library(shinydashboard)
@@ -11,22 +34,48 @@ library(shinyWidgets)
 library(htmltools)
 library(rmarkdown)
 library(knitr)
-library(car)    # Untuk uji Levene
-library(lmtest) # Untuk uji Breusch-Pagan
-library(writexl) # Untuk ekspor Excel
-library(haven)   # Untuk ekspor SAV
+library(car)       # Untuk uji Levene
+library(lmtest)    # Untuk uji Breusch-Pagan
+library(writexl)   # Untuk ekspor Excel
+library(haven)     # Untuk ekspor SAV
 library(gridExtra) # Untuk download PNG
 
-# Baca data
-sovi_data <- read.csv("https://raw.githubusercontent.com/bmlmcmc/naspaclust/main/data/sovi_data.csv") %>%
-  mutate(DISTRICTCODE = as.character(DISTRICTCODE)) # Konversi DISTRICTCODE ke karakter
-distance_matrix <- read.csv("https://raw.githubusercontent.com/bmlmcmc/naspaclust/main/data/distance.csv")
-shp <- st_read("C:/Users/ASUS/Downloads/STIS SEMESTER 4/UAS Komstat/Administrasi_Kabupaten.shp") # Sesuaikan path
-
-# Gabungkan shapefile dengan data berdasarkan kodekab dan DISTRICTCODE
-shp_merged <- shp %>%
-  mutate(kodekab = as.character(kodekab)) %>%
-  left_join(sovi_data, by = c("kodekab" = "DISTRICTCODE"))
+# Baca data dengan error handling
+tryCatch({
+  sovi_data <- read.csv("https://raw.githubusercontent.com/bmlmcmc/naspaclust/main/data/sovi_data.csv") %>%
+    mutate(DISTRICTCODE = as.character(DISTRICTCODE))
+  distance_matrix <- read.csv("https://raw.githubusercontent.com/bmlmcmc/naspaclust/main/data/distance.csv")
+  
+  # Coba berbagai path untuk shapefile
+  shp_paths <- c(
+    "C:/Users/ASUS/Downloads/STIS SEMESTER 4/UAS Komstat/Administrasi_Kabupaten.shp",
+    "Administrasi_Kabupaten.shp",
+    "./Administrasi_Kabupaten.shp"
+  )
+  
+  shp <- NULL
+  for(path in shp_paths) {
+    if(file.exists(path)) {
+      shp <- st_read(path)
+      break
+    }
+  }
+  
+  if(is.null(shp)) {
+    warning("Shapefile tidak ditemukan. Peta tidak akan tersedia.")
+    # Buat dummy shapefile untuk menghindari error
+    shp <- data.frame(kodekab = character(0), geometry = I(list()))
+    shp <- st_as_sf(shp)
+  }
+  
+  # Gabungkan shapefile dengan data
+  shp_merged <- shp %>%
+    mutate(kodekab = as.character(kodekab)) %>%
+    left_join(sovi_data, by = c("kodekab" = "DISTRICTCODE"))
+  
+}, error = function(e) {
+  stop("Error loading data: ", e$message)
+})
 
 # Definisikan UI
 ui <- dashboardPage(
@@ -63,6 +112,9 @@ ui <- dashboardPage(
         .data-table { margin-top: 20px; overflow-x: auto; }
         .data-table table { width: 100%; }
         .error-message { color: red; font-weight: bold; }
+        .plot-container { display: flex; flex-wrap: wrap; gap: 10px; }
+        .plot-item { flex: 1; min-width: 300px; }
+        .warning-box { background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; margin: 10px 0; }
       "))
     ),
     
@@ -72,9 +124,31 @@ ui <- dashboardPage(
               fluidRow(
                 box(width = 12, title = "Selamat Datang di Dashboard SoVI", status = "primary", solidHeader = TRUE,
                     h3("Deskripsi Dashboard"),
-                    p("Dashboard ini dirancang untuk menganalisis data Social Vulnerability Index (SoVI) dari ", 
-                      a("ScienceDirect", href = "https://www.sciencedirect.com/science/article/pii/S2352340921010180"), 
-                      ". Fitur meliputi persiapan data, manajemen data, eksplorasi data, uji asumsi statistik, uji inferensial (uji beda rata-rata, proporsi, varians, ANOVA), dan regresi linear berganda. Semua hasil, plot, peta, dan tabel dapat diunduh sebagai PDF, XLS, CSV, atau SAV untuk data, dan PDF atau PNG untuk plot."),
+                    div(style = "background-color: #e7f3ff; padding: 15px; border-radius: 5px; margin-bottom: 15px;",
+                        h4("Metadata Struktural Dataset"),
+                        p(strong("Nama Dataset:"), "Social Vulnerability Index (SoVI) Data"),
+                        p(strong("Sumber Referensi:"), 
+                          a("Data descriptor: Social vulnerability to environmental hazards in Indonesian coastal cities", 
+                            href = "https://www.sciencedirect.com/science/article/pii/S2352340921010180", 
+                            target = "_blank")),
+                        p(strong("Struktur Data:")),
+                        tags$ul(
+                          tags$li("Variabel numerik: Berbagai indikator kerentanan sosial (demografi, ekonomi, infrastruktur)"),
+                          tags$li("Variabel spasial: Informasi geografis kabupaten/kota Indonesia"),
+                          tags$li("Unit observasi: Kabupaten/kota pesisir di Indonesia"),
+                          tags$li("Skala pengukuran: Rasio dan interval untuk analisis statistik parametrik")
+                        ),
+                        p(strong("Kegunaan Analitis:")),
+                        tags$ul(
+                          tags$li("Identifikasi pola kerentanan sosial secara spasial"),
+                          tags$li("Perbandingan tingkat kerentanan antar wilayah"),
+                          tags$li("Analisis faktor-faktor yang mempengaruhi kerentanan"),
+                          tags$li("Pemodelan prediktif untuk penilaian risiko")
+                        )
+                    ),
+                    p("Dashboard ini dirancang untuk menganalisis data Social Vulnerability Index (SoVI) dengan pendekatan statistik komprehensif. 
+                      Fitur meliputi persiapan data, manajemen data, eksplorasi data, uji asumsi statistik, uji inferensial (uji beda rata-rata, proporsi, varians, ANOVA), 
+                      dan regresi linear berganda. Semua hasil, plot, peta, dan tabel dapat diunduh sebagai PDF, XLS, CSV, atau SAV untuk data, dan PDF atau PNG untuk plot."),
                     h3("Fitur Utama"),
                     p("- **Persiapan Data**: Menghapus NA dan outlier, menampilkan data awal atau bersih."),
                     p("- **Manajemen Data**: Mengkategorikan data kontinu menjadi faktor untuk analisis grup."),
@@ -133,7 +207,7 @@ ui <- dashboardPage(
                                  ),
                                  choiceValues = c("raw", "remove_na", "remove_outlier", "both"),
                                  selected = "raw"),
-                    actionButton("clean_btn", "Bersihkan Data"),
+                    actionButton("clean_btn", "Pilih Data"),
                     textOutput("clean_error"),
                     div(class = "data-table", DTOutput("cleaned_data_table")),
                     selectInput("download_format_clean", "Pilih Format Download",
@@ -172,9 +246,11 @@ ui <- dashboardPage(
                 ),
                 box(width = 12, title = "Visualisasi Data", status = "info", solidHeader = TRUE,
                     selectInput("var_plot", "Pilih Variabel", choices = NULL),
-                    plotlyOutput("histogram_plot", height = "400px"),
-                    plotlyOutput("boxplot_plot", height = "300px"),
-                    plotlyOutput("map_plot", height = "300px"),
+                    div(class = "plot-container",
+                        div(class = "plot-item", plotlyOutput("histogram_plot", height = "400px")),
+                        div(class = "plot-item", plotlyOutput("boxplot_plot", height = "400px"))
+                    ),
+                    plotlyOutput("map_plot", height = "500px"),
                     selectInput("download_format_plot", "Pilih Format Download Plot",
                                 choices = c("PDF" = "pdf", "PNG" = "png")),
                     downloadButton("download_plot", "Download Plot")
@@ -196,6 +272,13 @@ ui <- dashboardPage(
                 box(width = 6, title = "Uji Homogenitas", status = "info", solidHeader = TRUE,
                     selectInput("var_homog", "Pilih Variabel", choices = NULL),
                     selectInput("group_homog", "Pilih Grup", choices = c("Tidak Ada" = ""), selected = NULL),
+                    conditionalPanel(
+                      condition = "input.group_homog == ''",
+                      div(class = "warning-box", 
+                          HTML("<strong>Perhatian:</strong> Uji homogenitas memerlukan variabel faktor untuk membandingkan varians antar grup.<br>
+                               <strong>Solusi:</strong> Buat variabel faktor di tab 'Manajemen Data' dengan mengkategorikan variabel numerik, 
+                               kemudian pilih variabel faktor tersebut pada dropdown 'Pilih Grup' di atas."))
+                    ),
                     verbatimTextOutput("homogeneity_test"),
                     textOutput("homogeneity_error"),
                     downloadButton("download_homogeneity", "Download Hasil Uji Homogenitas (PDF)")
@@ -218,6 +301,13 @@ ui <- dashboardPage(
                 box(width = 6, title = "Uji T Dua Sampel", status = "info", solidHeader = TRUE,
                     selectInput("var_t2", "Pilih Variabel", choices = NULL),
                     selectInput("group_t2", "Pilih Grup", choices = c("Tidak Ada" = ""), selected = NULL),
+                    conditionalPanel(
+                      condition = "input.group_t2 == ''",
+                      div(class = "warning-box", 
+                          HTML("<strong>Perhatian:</strong> Uji t dua sampel memerlukan variabel faktor untuk membandingkan rata-rata antar grup.<br>
+                               <strong>Solusi:</strong> Buat variabel faktor di tab 'Manajemen Data' dengan mengkategorikan variabel numerik, 
+                               kemudian pilih variabel faktor tersebut pada dropdown 'Pilih Grup' di atas."))
+                    ),
                     verbatimTextOutput("t_test_two"),
                     textOutput("t_test_two_error"),
                     downloadButton("download_t_test_two", "Download Uji T Dua Sampel (PDF)")
@@ -234,6 +324,13 @@ ui <- dashboardPage(
                 box(width = 6, title = "Uji Proporsi", status = "info", solidHeader = TRUE,
                     selectInput("var_prop", "Pilih Variabel Kategorik", choices = c("Tidak Ada" = ""), selected = NULL),
                     numericInput("p0_prop", "Proporsi Hipotesis (p0)", value = 0.5, min = 0, max = 1),
+                    conditionalPanel(
+                      condition = "input.var_prop == ''",
+                      div(class = "warning-box", 
+                          HTML("<strong>Perhatian:</strong> Uji proporsi memerlukan variabel kategorik/faktor.<br>
+                               <strong>Solusi:</strong> Buat variabel faktor di tab 'Manajemen Data' dengan mengkategorikan variabel numerik, 
+                               kemudian pilih variabel faktor tersebut pada dropdown 'Pilih Variabel Kategorik' di atas."))
+                    ),
                     verbatimTextOutput("prop_test"),
                     textOutput("prop_test_error"),
                     downloadButton("download_prop_test", "Download Uji Proporsi (PDF)")
@@ -241,6 +338,13 @@ ui <- dashboardPage(
                 box(width = 6, title = "Uji Varians", status = "info", solidHeader = TRUE,
                     selectInput("var_var", "Pilih Variabel", choices = NULL),
                     selectInput("group_var", "Pilih Grup", choices = c("Tidak Ada" = ""), selected = NULL),
+                    conditionalPanel(
+                      condition = "input.group_var == ''",
+                      div(class = "warning-box", 
+                          HTML("<strong>Perhatian:</strong> Uji varians memerlukan variabel faktor untuk membandingkan varians antar grup.<br>
+                               <strong>Solusi:</strong> Buat variabel faktor di tab 'Manajemen Data' dengan mengkategorikan variabel numerik, 
+                               kemudian pilih variabel faktor tersebut pada dropdown 'Pilih Grup' di atas."))
+                    ),
                     verbatimTextOutput("var_test"),
                     textOutput("var_test_error"),
                     downloadButton("download_var_test", "Download Uji Varians (PDF)")
@@ -282,6 +386,13 @@ ui <- dashboardPage(
                     selectInput("dep_var", "Variabel Dependen", choices = NULL),
                     selectizeInput("indep_vars", "Variabel Independen", choices = NULL, multiple = TRUE, 
                                    options = list(placeholder = "Pilih variabel (kosongkan untuk batal)", allowEmptyOption = TRUE)),
+                    conditionalPanel(
+                      condition = "!input.indep_vars || input.indep_vars.length == 0",
+                      div(class = "warning-box", 
+                          HTML("<strong>Perhatian:</strong> Regresi linear berganda memerlukan setidaknya satu variabel independen.<br>
+                               <strong>Petunjuk:</strong> Pilih satu atau lebih variabel numerik sebagai prediktor dari dropdown 'Variabel Independen' di atas. 
+                               Variabel yang dipilih harus berbeda dari variabel dependen untuk menganalisis hubungan kausal."))
+                    ),
                     verbatimTextOutput("regression_output"),
                     textOutput("regression_error"),
                     downloadButton("download_regression", "Download Hasil Regresi (PDF)")
@@ -540,40 +651,88 @@ server <- function(input, output, session) {
   
   output$map_plot <- renderPlotly({
     var <- input$var_plot
-    p <- ggplot(shp_merged) + 
-      geom_sf(aes(fill = .data[[var]])) +
-      scale_fill_gradientn(colors = c("blue", "white", "red")) +
-      labs(title = paste("Peta distribusi dari", var))
-    ggplotly(p)
+    if(nrow(shp_merged) == 0) {
+      # Jika shapefile tidak tersedia, tampilkan pesan
+      plot_ly() %>%
+        add_text(x = 0.5, y = 0.5, text = "Peta tidak tersedia\n(Shapefile tidak ditemukan)", 
+                 textfont = list(size = 16, color = "red")) %>%
+        layout(title = paste("Peta distribusi dari", var),
+               xaxis = list(visible = FALSE),
+               yaxis = list(visible = FALSE))
+    } else {
+      # Buat peta dengan nama daerah saat hover
+      p <- ggplot(shp_merged) + 
+        geom_sf(aes(fill = .data[[var]], 
+                    text = paste("Daerah:", ifelse(!is.na(NAMOBJ), NAMOBJ, "Tidak diketahui"),
+                                 "<br>Kode:", kodekab,
+                                 "<br>", var, ":", round(.data[[var]], 2)))) +
+        scale_fill_gradientn(colors = c("blue", "lightblue", "yellow", "orange", "red"), na.value = "grey") +
+        labs(title = paste("Peta distribusi dari", var),
+             fill = var) +
+        theme_minimal() +
+        theme(axis.text = element_blank(),
+              axis.ticks = element_blank())
+      ggplotly(p, tooltip = "text")
+    }
   })
   
   output$download_plot <- downloadHandler(
     filename = function() {
-      paste("plot", input$download_format_plot, sep = ".")
+      paste("plot_", input$var_plot, "_", Sys.Date(), ".", input$download_format_plot, sep = "")
     },
     content = function(file) {
       var <- input$var_plot
-      plots <- list()
-      plots$histogram <- ggplot(cleaned_data(), aes_string(x = var)) + 
-        geom_histogram(bins = 30, fill = "skyblue", color = "black") +
-        labs(title = paste("Histogram dari", var))
-      plots$boxplot <- ggplot(cleaned_data(), aes_string(y = var)) + 
-        geom_boxplot(fill = "skyblue") +
-        labs(title = paste("Boxplot dari", var))
-      plots$map <- ggplot(shp_merged) + 
-        geom_sf(aes(fill = .data[[var]])) +
-        scale_fill_gradientn(colors = c("blue", "white", "red")) +
-        labs(title = paste("Peta dari", var))
+      
+      # Buat plot histogram
+      histogram_plot <- ggplot(cleaned_data(), aes_string(x = var)) + 
+        geom_histogram(bins = 30, fill = "skyblue", color = "black", alpha = 0.7) +
+        labs(title = paste("Histogram dari", var),
+             subtitle = paste("Data:", get_clean_status_text()),
+             x = var, y = "Frekuensi") +
+        theme_minimal() +
+        theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+      
+      # Buat plot boxplot
+      boxplot_plot <- ggplot(cleaned_data(), aes_string(y = var)) + 
+        geom_boxplot(fill = "lightgreen", color = "darkgreen", alpha = 0.7) +
+        labs(title = paste("Boxplot dari", var),
+             subtitle = paste("Deteksi outlier dan distribusi kuartil"),
+             y = var) +
+        theme_minimal() +
+        theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"))
+      
+      # Buat plot peta
+      if(nrow(shp_merged) > 0) {
+        map_plot <- ggplot(shp_merged) + 
+          geom_sf(aes(fill = .data[[var]]), color = "white", size = 0.1) +
+          scale_fill_gradientn(colors = c("blue", "lightblue", "yellow", "orange", "red"), 
+                               na.value = "grey90",
+                               name = var) +
+          labs(title = paste("Peta Distribusi Spasial", var),
+               subtitle = "Social Vulnerability Index - Kabupaten/Kota Indonesia") +
+          theme_void() +
+          theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+                plot.subtitle = element_text(hjust = 0.5, size = 10),
+                legend.position = "bottom")
+      } else {
+        map_plot <- ggplot() + 
+          annotate("text", x = 0.5, y = 0.5, label = "Peta tidak tersedia\n(Shapefile tidak ditemukan)", 
+                   size = 12, color = "red") +
+          labs(title = paste("Peta dari", var)) +
+          theme_void()
+      }
       
       if (input$download_format_plot == "pdf") {
-        pdf(file, width = 8, height = 12)
-        print(plots$histogram)
-        print(plots$boxplot)
-        print(plots$map)
+        pdf(file, width = 12, height = 16)
+        print(histogram_plot)
+        print(boxplot_plot)
+        print(map_plot)
         dev.off()
       } else if (input$download_format_plot == "png") {
-        png(file, width = 800, height = 1200, res = 100)
-        grid.arrange(plots$histogram, plots$boxplot, plots$map, ncol = 1)
+        png(file, width = 1200, height = 1600, res = 150)
+        combined_plot <- grid.arrange(histogram_plot, boxplot_plot, map_plot, 
+                                      ncol = 1, heights = c(1, 1, 1.2))
+        print(combined_plot)
         dev.off()
       }
     }
@@ -756,33 +915,64 @@ server <- function(input, output, session) {
   output$t_test_two_error <- renderText("")
   
   output$mean_test_interpretation <- renderText({
-    req(input$group_t2 != "")
-    tryCatch({
-      group_data <- as.factor(cleaned_data()[[input$group_t2]])
-      if (nlevels(group_data) < 2) stop("Grup harus memiliki setidaknya dua level")
-      t_result <- t.test(cleaned_data()[[input$var_t2]] ~ group_data)
+    # Interpretasi untuk uji t satu sampel (selalu tersedia)
+    t_one_interpretation <- tryCatch({
+      t_result <- t.test(cleaned_data()[[input$var_t1]], mu = input$mu_t1)
       p_val <- t_result$p.value
-      group_means <- tapply(cleaned_data()[[input$var_t2]], group_data, mean, na.rm = TRUE)
-      group_sd <- tapply(cleaned_data()[[input$var_t2]], group_data, sd, na.rm = TRUE)
-      stats <- summary(cleaned_data()[[input$var_t2]])
+      mean_val <- mean(cleaned_data()[[input$var_t1]], na.rm = TRUE)
+      sd_val <- sd(cleaned_data()[[input$var_t1]], na.rm = TRUE)
+      stats <- summary(cleaned_data()[[input$var_t1]])
       paste(
+        "INTERPRETASI UJI T SATU SAMPEL:\n",
         get_clean_status_text(),
-        "Uji t dua sampel untuk variabel", input$var_t2, "berdasarkan grup", input$group_t2, 
+        "Uji t satu sampel untuk variabel", input$var_t1, "terhadap hipotesis rata-rata", input$mu_t1, 
         "menghasilkan p-value =", round(p_val, 4), ".",
         ifelse(p_val > 0.05, 
-               paste("Karena p-value > 0.05, tidak ada bukti signifikan bahwa rata-rata berbeda antar grup", input$group_t2, "."),
-               paste("Karena p-value <= 0.05, rata-rata berbeda secara signifikan antar grup", input$group_t2, ".")),
-        "Rata-rata grup:", paste(names(group_means), "=", round(group_means, 2), collapse = "; "), ".",
-        "Simpangan baku grup:", paste(names(group_sd), "=", round(group_sd, 2), collapse = "; "), ".",
-        "Rentang data keseluruhan dari", round(stats[1], 2), "hingga", round(stats[6], 2), ".",
-        "Hasil ini menunjukkan", ifelse(p_val <= 0.05, 
-                                        "adanya perbedaan signifikan antar grup yang dapat digunakan untuk analisis kerentanan sosial berbasis grup.",
-                                        "tidak adanya perbedaan signifikan, sehingga grup mungkin memiliki karakteristik serupa."),
-        "Pastikan homogenitas varians dengan uji Levene di tab 'Uji Asumsi' sebelum menginterpretasikan hasil ini."
+               paste("Karena p-value > 0.05, tidak ada bukti signifikan bahwa rata-rata berbeda dari", input$mu_t1, "."),
+               paste("Karena p-value <= 0.05, rata-rata berbeda secara signifikan dari", input$mu_t1, ".")),
+        "Rata-rata sampel adalah", round(mean_val, 2), "dengan simpangan baku", round(sd_val, 2), 
+        "dan rentang dari", round(stats[1], 2), "hingga", round(stats[6], 2), ".",
+        "Hasil ini menunjukkan", ifelse(p_val <= 0.05, "adanya perbedaan signifikan yang dapat memengaruhi interpretasi kerentanan sosial.",
+                                        "tidak adanya perbedaan signifikan, sehingga hipotesis nol diterima."),
+        "Lanjutkan dengan memeriksa normalitas data di tab 'Uji Asumsi' untuk memvalidasi asumsi uji t."
       )
     }, error = function(e) {
-      paste("Error pada uji t dua sampel:", e$message)
+      paste("INTERPRETASI UJI T SATU SAMPEL: Error -", e$message)
     })
+    
+    # Interpretasi untuk uji t dua sampel (jika tersedia)
+    t_two_interpretation <- if(input$group_t2 != "") {
+      tryCatch({
+        group_data <- as.factor(cleaned_data()[[input$group_t2]])
+        if (nlevels(group_data) < 2) stop("Grup harus memiliki setidaknya dua level")
+        t_result <- t.test(cleaned_data()[[input$var_t2]] ~ group_data)
+        p_val <- t_result$p.value
+        group_means <- tapply(cleaned_data()[[input$var_t2]], group_data, mean, na.rm = TRUE)
+        group_sd <- tapply(cleaned_data()[[input$var_t2]], group_data, sd, na.rm = TRUE)
+        stats <- summary(cleaned_data()[[input$var_t2]])
+        paste(
+          "\n\nINTERPRETASI UJI T DUA SAMPEL:\n",
+          "Uji t dua sampel untuk variabel", input$var_t2, "berdasarkan grup", input$group_t2, 
+          "menghasilkan p-value =", round(p_val, 4), ".",
+          ifelse(p_val > 0.05, 
+                 paste("Karena p-value > 0.05, tidak ada bukti signifikan bahwa rata-rata berbeda antar grup", input$group_t2, "."),
+                 paste("Karena p-value <= 0.05, rata-rata berbeda secara signifikan antar grup", input$group_t2, ".")),
+          "Rata-rata grup:", paste(names(group_means), "=", round(group_means, 2), collapse = "; "), ".",
+          "Simpangan baku grup:", paste(names(group_sd), "=", round(group_sd, 2), collapse = "; "), ".",
+          "Rentang data keseluruhan dari", round(stats[1], 2), "hingga", round(stats[6], 2), ".",
+          "Hasil ini menunjukkan", ifelse(p_val <= 0.05, 
+                                          "adanya perbedaan signifikan antar grup yang dapat digunakan untuk analisis kerentanan sosial berbasis grup.",
+                                          "tidak adanya perbedaan signifikan, sehingga grup mungkin memiliki karakteristik serupa."),
+          "Pastikan homogenitas varians dengan uji Levene di tab 'Uji Asumsi' sebelum menginterpretasikan hasil ini."
+        )
+      }, error = function(e) {
+        paste("\n\nINTERPRETASI UJI T DUA SAMPEL: Error -", e$message)
+      })
+    } else {
+      "\n\nINTERPRETASI UJI T DUA SAMPEL: Belum tersedia - Pilih variabel faktor di dropdown 'Pilih Grup' untuk uji t dua sampel."
+    }
+    
+    paste(t_one_interpretation, t_two_interpretation)
   })
   
   output$download_t_test_two <- downloadHandler(
@@ -819,30 +1009,67 @@ server <- function(input, output, session) {
   output$prop_test_error <- renderText("")
   
   output$prop_var_interpretation <- renderText({
-    req(input$var_prop != "")
-    tryCatch({
-      tab <- table(cleaned_data()[[input$var_prop]])
-      if (length(tab) < 2) stop("Variabel harus memiliki setidaknya dua level")
-      prop_result <- prop.test(tab[1], sum(tab), p = input$p0_prop)
-      p_val <- prop_result$p.value
-      prop_observed <- tab[1] / sum(tab)
-      paste(
-        get_clean_status_text(),
-        "Uji proporsi untuk variabel kategorik", input$var_prop, "terhadap proporsi hipotesis", input$p0_prop, 
-        "menghasilkan p-value =", round(p_val, 4), ".",
-        ifelse(p_val > 0.05, 
-               paste("Karena p-value > 0.05, proporsi tidak berbeda secara signifikan dari", input$p0_prop, "."),
-               paste("Karena p-value <= 0.05, proporsi berbeda secara signifikan dari", input$p0_prop, ".")),
-        "Proporsi teramati untuk kategori pertama adalah", round(prop_observed, 2), 
-        "dengan distribusi kategori:", paste(names(tab), "=", tab, collapse = "; "), ".",
-        "Hasil ini menunjukkan", ifelse(p_val <= 0.05, 
-                                        "adanya perbedaan signifikan yang dapat memengaruhi interpretasi distribusi kategorik dalam konteks SoVI.",
-                                        "tidak adanya perbedaan signifikan, sehingga proporsi sesuai dengan hipotesis."),
-        "Untuk analisis lebih lanjut, pertimbangkan membuat variabel kategorik tambahan di tab 'Manajemen Data' atau memeriksa distribusi di tab 'Eksplorasi Data'."
-      )
-    }, error = function(e) {
-      paste("Error pada uji proporsi:", e$message)
-    })
+    # Interpretasi untuk uji proporsi
+    prop_interpretation <- if(input$var_prop != "") {
+      tryCatch({
+        tab <- table(cleaned_data()[[input$var_prop]])
+        if (length(tab) < 2) stop("Variabel harus memiliki setidaknya dua level")
+        prop_result <- prop.test(tab[1], sum(tab), p = input$p0_prop)
+        p_val <- prop_result$p.value
+        prop_observed <- tab[1] / sum(tab)
+        paste(
+          "INTERPRETASI UJI PROPORSI:\n",
+          get_clean_status_text(),
+          "Uji proporsi untuk variabel kategorik", input$var_prop, "terhadap proporsi hipotesis", input$p0_prop, 
+          "menghasilkan p-value =", round(p_val, 4), ".",
+          ifelse(p_val > 0.05, 
+                 paste("Karena p-value > 0.05, proporsi tidak berbeda secara signifikan dari", input$p0_prop, "."),
+                 paste("Karena p-value <= 0.05, proporsi berbeda secara signifikan dari", input$p0_prop, ".")),
+          "Proporsi teramati untuk kategori pertama adalah", round(prop_observed, 2), 
+          "dengan distribusi kategori:", paste(names(tab), "=", tab, collapse = "; "), ".",
+          "Hasil ini menunjukkan", ifelse(p_val <= 0.05, 
+                                          "adanya perbedaan signifikan yang dapat memengaruhi interpretasi distribusi kategorik dalam konteks SoVI.",
+                                          "tidak adanya perbedaan signifikan, sehingga proporsi sesuai dengan hipotesis."),
+          "Untuk analisis lebih lanjut, pertimbangkan membuat variabel kategorik tambahan di tab 'Manajemen Data' atau memeriksa distribusi di tab 'Eksplorasi Data'."
+        )
+      }, error = function(e) {
+        paste("INTERPRETASI UJI PROPORSI: Error -", e$message)
+      })
+    } else {
+      "INTERPRETASI UJI PROPORSI: Belum tersedia - Pilih variabel kategorik/faktor untuk melakukan uji proporsi. Buat variabel faktor di tab 'Manajemen Data' jika belum tersedia."
+    }
+    
+    # Interpretasi untuk uji varians
+    var_interpretation <- if(input$group_var != "") {
+      tryCatch({
+        group_data <- as.factor(cleaned_data()[[input$group_var]])
+        if (nlevels(group_data) < 2) stop("Grup harus memiliki setidaknya dua level")
+        var_result <- var.test(cleaned_data()[[input$var_var]] ~ group_data)
+        p_val <- var_result$p.value
+        group_sd <- tapply(cleaned_data()[[input$var_var]], group_data, sd, na.rm = TRUE)
+        stats <- summary(cleaned_data()[[input$var_var]])
+        paste(
+          "\n\nINTERPRETASI UJI VARIANS:\n",
+          "Uji varians untuk variabel", input$var_var, "berdasarkan grup", input$group_var, 
+          "menghasilkan p-value =", round(p_val, 4), ".",
+          ifelse(p_val > 0.05, 
+                 paste("Karena p-value > 0.05, varians antar grup dianggap sama."),
+                 paste("Karena p-value <= 0.05, varians antar grup berbeda secara signifikan.")),
+          "Simpangan baku grup:", paste(names(group_sd), "=", round(group_sd, 2), collapse = "; "), ".",
+          "Rentang data keseluruhan dari", round(stats[1], 2), "hingga", round(stats[6], 2), ".",
+          "Hasil ini menunjukkan", ifelse(p_val <= 0.05, 
+                                          "adanya perbedaan variabilitas antar grup yang dapat memengaruhi analisis lebih lanjut.",
+                                          "tidak adanya perbedaan variabilitas, mendukung asumsi homogenitas untuk uji t dua sampel atau ANOVA."),
+          "Periksa distribusi data di tab 'Eksplorasi Data' untuk memahami pola variabilitas lebih lanjut."
+        )
+      }, error = function(e) {
+        paste("\n\nINTERPRETASI UJI VARIANS: Error -", e$message)
+      })
+    } else {
+      "\n\nINTERPRETASI UJI VARIANS: Belum tersedia - Pilih variabel faktor di dropdown 'Pilih Grup' untuk uji varians. Buat variabel faktor di tab 'Manajemen Data' jika belum tersedia."
+    }
+    
+    paste(prop_interpretation, var_interpretation)
   })
   
   output$download_prop_test <- downloadHandler(
