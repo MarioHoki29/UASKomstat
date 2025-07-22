@@ -80,26 +80,26 @@ tryCatch({
     shp <- st_sf(shp, geometry = st_sfc(crs = 4326))
   }
   
-      # Gabungkan shapefile dengan data
-    if(nrow(shp) > 0) {
-      shp_merged <- shp %>%
-        mutate(kodekab = as.character(kodekab)) %>%
-        left_join(sovi_data, by = c("kodekab" = "DISTRICTCODE"))
-    } else {
-      # Jika shapefile kosong, buat data dummy untuk visualisasi
-      shp_merged <- data.frame(
-        kodekab = sovi_data$DISTRICTCODE[1:min(10, nrow(sovi_data))],
-        NAMOBJ = paste("Daerah", 1:min(10, nrow(sovi_data))),
-        sovi_data[1:min(10, nrow(sovi_data)), ],
-        stringsAsFactors = FALSE
-      )
-      # Buat geometri dummy (titik)
-      coords <- data.frame(
-        x = runif(nrow(shp_merged), 95, 141),  # Longitude Indonesia
-        y = runif(nrow(shp_merged), -11, 6)    # Latitude Indonesia
-      )
-      shp_merged <- st_sf(shp_merged, geometry = st_sfc(st_multipoint(as.matrix(coords)), crs = 4326))
-    }
+  # Gabungkan shapefile dengan data
+  if(nrow(shp) > 0) {
+    shp_merged <- shp %>%
+      mutate(kodekab = as.character(kodekab)) %>%
+      left_join(sovi_data, by = c("kodekab" = "DISTRICTCODE"))
+  } else {
+    # Jika shapefile kosong, buat data dummy untuk visualisasi
+    shp_merged <- data.frame(
+      kodekab = sovi_data$DISTRICTCODE[1:min(10, nrow(sovi_data))],
+      NAMOBJ = paste("Daerah", 1:min(10, nrow(sovi_data))),
+      sovi_data[1:min(10, nrow(sovi_data)), ],
+      stringsAsFactors = FALSE
+    )
+    # Buat geometri dummy (titik)
+    coords <- data.frame(
+      x = runif(nrow(shp_merged), 95, 141),  # Longitude Indonesia
+      y = runif(nrow(shp_merged), -11, 6)    # Latitude Indonesia
+    )
+    shp_merged <- st_sf(shp_merged, geometry = st_sfc(st_multipoint(as.matrix(coords)), crs = 4326))
+  }
   
 }, error = function(e) {
   stop("Error loading data: ", e$message)
@@ -1542,8 +1542,7 @@ server <- function(input, output, session) {
       rmarkdown::render(temp_file, output_file = file, envir = new.env())
     }
   )
-}
-
+  
   # Download metadata
   output$download_metadata <- downloadHandler(
     filename = "metadata_sovi_dataset.pdf",
