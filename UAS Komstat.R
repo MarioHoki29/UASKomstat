@@ -169,13 +169,41 @@ ui <- dashboardPage(
         .shiny-download-link:hover { background-color: #0056b3; }
         h3 { color: #2c3e50; }
         .sidebar-menu li a { font-size: 16px; }
-        .interpretation-box { background-color: #fff3cd; padding: 15px; border-radius: 5px; margin-top: 10px; }
+        .interpretation-box { 
+          background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+          color: white; 
+          padding: 20px; 
+          border-radius: 10px; 
+          margin-top: 15px; 
+          box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        }
         .data-table { margin-top: 20px; overflow-x: auto; }
         .data-table table { width: 100%; }
-        .error-message { color: red; font-weight: bold; }
-        .plot-container { display: flex; flex-wrap: wrap; gap: 10px; }
+        .error-message { color: #e74c3c; font-weight: bold; }
+        .plot-container { display: flex; flex-wrap: wrap; gap: 15px; }
         .plot-item { flex: 1; min-width: 300px; }
-        .warning-box { background-color: #f8d7da; color: #721c24; padding: 15px; border-radius: 5px; margin: 10px 0; }
+        .warning-box { 
+          background: linear-gradient(135deg, #ffeaa7 0%, #fab1a0 100%); 
+          color: #2d3436; 
+          padding: 15px; 
+          border-radius: 8px; 
+          margin: 10px 0; 
+          border-left: 5px solid #e17055;
+        }
+        .success-box {
+          background: linear-gradient(135deg, #00b894 0%, #00cec9 100%);
+          color: white;
+          padding: 15px;
+          border-radius: 8px;
+          margin: 10px 0;
+        }
+        .info-box {
+          background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%);
+          color: white;
+          padding: 15px;
+          border-radius: 8px;
+          margin: 10px 0;
+        }
       "))
     ),
     
@@ -1226,10 +1254,10 @@ server <- function(input, output, session) {
   
   output$prop_test_error <- renderText("")
   
-  output$prop_var_interpretation <- renderText({
-    # INTERPRETASI UJI PROPORSI (Selalu ditampilkan)
-    prop_interpretation <- if(input$var_prop != "" && input$var_prop != "Tidak Ada") {
-      tryCatch({
+    output$prop_var_interpretation <- renderText({
+    # INTERPRETASI UJI PROPORSI (Selalu ditampilkan sebagai prioritas utama)
+    prop_interpretation <- tryCatch({
+      if(input$var_prop != "" && input$var_prop != "Tidak Ada") {
         tab <- table(cleaned_data()[[input$var_prop]])
         if (length(tab) < 2) stop("Variabel harus memiliki setidaknya dua level")
         prop_result <- prop.test(tab[1], sum(tab), p = input$p0_prop)
@@ -1248,53 +1276,59 @@ server <- function(input, output, session) {
         }
         
         paste(
-          "═══ INTERPRETASI UJI PROPORSI ═══\n",
-          "📊 Status Data:", get_clean_status_text(), "\n",
-          "🔍 Analisis: Uji proporsi untuk variabel kategorik", input$var_prop, "\n",
-          "📈 Hasil Statistik:",
-                     "   • P-value =", round(p_val, 4), "(", significance_msg, ")",
-          "   • Proporsi hipotesis (H₀) =", input$p0_prop,
-          "   • Proporsi teramati =", round(prop_observed, 4),
-                     "   • Distribusi kategori:", paste(names(tab), "=", tab, "(", round(tab/sum(tab)*100, 1), "%)", collapse = "; "), "\n",
-          "💡 Interpretasi:",
+          "════════════════════════════════════════════════\n",
+          "📊 INTERPRETASI UJI PROPORSI\n",
+          "════════════════════════════════════════════════\n",
+          "📋 Status Data:", get_clean_status_text(), "\n",
+          "🔍 Variabel Analisis:", input$var_prop, "\n",
+          "📈 Hasil Statistik:\n",
+          "   • P-value =", round(p_val, 4), "(", significance_msg, ")\n",
+          "   • Proporsi hipotesis (H₀) =", input$p0_prop, "\n",
+          "   • Proporsi teramati =", round(prop_observed, 4), "\n",
+          "   • Distribusi kategori:", paste(names(tab), "=", tab, "(", round(tab/sum(tab)*100, 1), "%)", collapse = "; "), "\n\n",
+          "💡 Interpretasi Statistik:\n",
           ifelse(p_val <= 0.05, 
-                 paste("   ✓ Terdapat perbedaan signifikan antara proporsi teramati dengan proporsi hipotesis."),
-                 paste("   ✗ Tidak terdapat perbedaan signifikan dari proporsi hipotesis.")),
-          "\n📋 Kesimpulan:",
+                 "   ✅ Terdapat perbedaan signifikan antara proporsi teramati dengan proporsi hipotesis.\n",
+                 "   ❌ Tidak terdapat perbedaan signifikan dari proporsi hipotesis.\n"),
+          "📋 Kesimpulan:\n",
           ifelse(p_val <= 0.05,
-                 "   Data memberikan bukti yang cukup untuk menolak H₀. Proporsi populasi berbeda dari nilai yang dihipotesiskan.",
-                 "   Data tidak memberikan bukti yang cukup untuk menolak H₀. Proporsi populasi sesuai dengan hipotesis."),
-          "\n🔗 Implikasi SoVI: Hasil ini", 
+                 "   Data memberikan bukti yang cukup untuk menolak H₀.\n   Proporsi populasi berbeda dari nilai yang dihipotesiskan.\n",
+                 "   Data tidak memberikan bukti yang cukup untuk menolak H₀.\n   Proporsi populasi sesuai dengan hipotesis.\n"),
+          "🔗 Implikasi untuk Analisis SoVI:\n",
           ifelse(p_val <= 0.05, 
-                 "menunjukkan adanya ketidakseimbangan distribusi kategorik yang perlu dipertimbangkan dalam analisis kerentanan sosial.",
-                 "menunjukkan distribusi yang seimbang sesuai harapan untuk analisis kerentanan sosial.")
+                 "   Menunjukkan ketidakseimbangan distribusi kategorik yang perlu\n   dipertimbangkan dalam analisis kerentanan sosial.\n",
+                 "   Menunjukkan distribusi yang seimbang sesuai harapan\n   untuk analisis kerentanan sosial.\n")
         )
-      }, error = function(e) {
+      } else {
         paste(
-          "═══ INTERPRETASI UJI PROPORSI ═══\n",
-          "❌ Status: Error dalam pengujian\n",
-          "📝 Detail Error:", e$message, "\n",
-          "💡 Saran: Pastikan variabel kategorik memiliki minimal 2 kategori dan data tidak kosong."
+          "════════════════════════════════════════════════\n",
+          "📊 INTERPRETASI UJI PROPORSI\n",
+          "════════════════════════════════════════════════\n",
+          "⏳ Status: Belum tersedia\n",
+          "📋 Persyaratan: Pilih variabel kategorik/faktor\n\n",
+          "🔧 Cara Setup:\n",
+          "   1. Buka tab 'Manajemen Data'\n",
+          "   2. Pilih variabel numerik untuk dikategorikan\n",
+          "   3. Tentukan jumlah kategori (2-10)\n",
+          "   4. Klik 'Kategorisasi'\n",
+          "   5. Kembali ke tab ini dan pilih variabel faktor\n\n",
+          "💡 Contoh: Kategorikan variabel pendapatan menjadi\n   'Rendah', 'Sedang', 'Tinggi'\n"
         )
-      })
-    } else {
+      }
+    }, error = function(e) {
       paste(
-        "═══ INTERPRETASI UJI PROPORSI ═══\n",
-        "⏳ Status: Belum tersedia\n",
-        "📋 Persyaratan: Pilih variabel kategorik/faktor pada dropdown di atas\n",
-        "🔧 Cara Setup:",
-        "   1. Buka tab 'Manajemen Data'",
-        "   2. Pilih variabel numerik untuk dikategorikan",
-        "   3. Tentukan jumlah kategori (2-10)",
-        "   4. Klik 'Kategorisasi'",
-        "   5. Kembali ke tab ini dan pilih variabel faktor yang baru dibuat",
-        "\n💡 Contoh: Kategorikan variabel pendapatan menjadi 'Rendah', 'Sedang', 'Tinggi'"
+        "════════════════════════════════════════════════\n",
+        "📊 INTERPRETASI UJI PROPORSI\n",
+        "════════════════════════════════════════════════\n",
+        "❌ Status: Error dalam pengujian\n",
+        "📝 Detail Error:", e$message, "\n",
+        "💡 Saran: Pastikan variabel kategorik memiliki minimal\n   2 kategori dan data tidak kosong.\n"
       )
-    }
+    })
     
-    # INTERPRETASI UJI VARIANS (Selalu ditampilkan, terlepas dari status uji proporsi)
-    var_interpretation <- if(input$group_var != "" && input$group_var != "Tidak Ada") {
-      tryCatch({
+    # INTERPRETASI UJI VARIANS (Ditampilkan terpisah, tidak mempengaruhi proporsi)
+    var_interpretation <- tryCatch({
+      if(input$group_var != "" && input$group_var != "Tidak Ada") {
         group_data <- as.factor(cleaned_data()[[input$group_var]])
         if (nlevels(group_data) < 2) stop("Grup harus memiliki setidaknya dua level")
         var_result <- var.test(cleaned_data()[[input$var_var]] ~ group_data)
@@ -1314,49 +1348,57 @@ server <- function(input, output, session) {
         }
         
         paste(
-          "\n\n═══ INTERPRETASI UJI VARIANS ═══\n",
-          "🔍 Analisis: Uji kesamaan varians (F-test) untuk variabel", input$var_var, "berdasarkan", input$group_var, "\n",
-          "📈 Hasil Statistik:",
-          "   • P-value =", round(p_val, 4),
-          "   • Rasio varians =", round(var_ratio, 2),
-          "   • Status homogenitas:", homogeneity_status, "\n",
-          "📊 Statistik Deskriptif per Grup:",
+          "\n════════════════════════════════════════════════\n",
+          "📊 INTERPRETASI UJI VARIANS\n",
+          "════════════════════════════════════════════════\n",
+          "🔍 Analisis: Uji kesamaan varians (F-test)\n",
+          "📋 Variabel:", input$var_var, "berdasarkan", input$group_var, "\n",
+          "📈 Hasil Statistik:\n",
+          "   • P-value =", round(p_val, 4), "\n",
+          "   • Rasio varians =", round(var_ratio, 2), "\n",
+          "   • Status homogenitas:", homogeneity_status, "\n\n",
+          "📊 Statistik Deskriptif per Grup:\n",
           paste("   •", names(group_sd), ": SD =", round(group_sd, 3), ", Var =", round(group_var_vals, 3), collapse = "\n"), "\n",
-          "   • Range keseluruhan:", round(stats[1], 2), "-", round(stats[6], 2), "\n",
-          "💡 Interpretasi:",
+          "   • Range keseluruhan:", round(stats[1], 2), "-", round(stats[6], 2), "\n\n",
+          "💡 Interpretasi:\n",
           ifelse(p_val <= 0.05,
-                 "   ✓ Varians antar grup berbeda secara signifikan (asumsi homogenitas tidak terpenuhi)",
-                 "   ✓ Varians antar grup tidak berbeda secara signifikan (asumsi homogenitas terpenuhi)"), "\n",
-          "📋 Implikasi Analitik:",
+                 "   ❌ Varians antar grup berbeda secara signifikan\n      (asumsi homogenitas tidak terpenuhi)\n",
+                 "   ✅ Varians antar grup tidak berbeda secara signifikan\n      (asumsi homogenitas terpenuhi)\n"),
+          "📋 Implikasi Analitik:\n",
           ifelse(p_val <= 0.05,
-                 "   ⚠️  Gunakan uji non-parametrik atau transformasi data untuk analisis selanjutnya",
-                 "   ✓ Dapat melanjutkan dengan uji parametrik (t-test, ANOVA)"), "\n",
-          "🔗 Konteks SoVI:",
+                 "   ⚠️  Gunakan uji non-parametrik atau transformasi data\n      untuk analisis selanjutnya\n",
+                 "   ✅ Dapat melanjutkan dengan uji parametrik\n      (t-test, ANOVA)\n"),
+          "🔗 Konteks SoVI:\n",
           ifelse(p_val <= 0.05,
-                 "   Variabilitas yang berbeda antar grup menunjukkan heterogenitas karakteristik sosial-ekonomi",
-                 "   Variabilitas yang seragam menunjukkan konsistensi karakteristik dalam setiap kelompok")
+                 "   Variabilitas berbeda antar grup menunjukkan\n   heterogenitas karakteristik sosial-ekonomi\n",
+                 "   Variabilitas seragam menunjukkan konsistensi\n   karakteristik dalam setiap kelompok\n")
         )
-      }, error = function(e) {
+      } else {
         paste(
-          "\n\n═══ INTERPRETASI UJI VARIANS ═══\n",
-          "❌ Status: Error dalam pengujian\n",
-          "📝 Detail Error:", e$message, "\n",
-          "💡 Saran: Pastikan variabel faktor memiliki minimal 2 level dan data numerik tidak kosong."
+          "\n════════════════════════════════════════════════\n",
+          "📊 INTERPRETASI UJI VARIANS\n",
+          "════════════════════════════════════════════════\n",
+          "⏳ Status: Belum tersedia\n",
+          "📋 Persyaratan: Pilih variabel faktor untuk pengelompokan\n\n",
+          "🔧 Cara Setup:\n",
+          "   1. Pastikan variabel numerik sudah dipilih\n",
+          "   2. Pilih variabel faktor pada dropdown 'Pilih Grup'\n",
+          "   3. Jika belum ada variabel faktor, buat di tab\n      'Manajemen Data'\n\n",
+          "💡 Tujuan: Menguji apakah variabilitas sama antar\n   kelompok (asumsi penting untuk ANOVA dan t-test)\n"
         )
-      })
-    } else {
+      }
+    }, error = function(e) {
       paste(
-        "\n\n═══ INTERPRETASI UJI VARIANS ═══\n",
-        "⏳ Status: Belum tersedia\n",
-        "📋 Persyaratan: Pilih variabel faktor untuk pengelompokan\n",
-        "🔧 Cara Setup:",
-        "   1. Pastikan variabel numerik sudah dipilih untuk diuji",
-        "   2. Pilih variabel faktor pada dropdown 'Pilih Grup'",
-        "   3. Jika belum ada variabel faktor, buat di tab 'Manajemen Data'",
-        "\n💡 Tujuan: Menguji apakah variabilitas sama antar kelompok (asumsi penting untuk ANOVA dan t-test)"
+        "\n════════════════════════════════════════════════\n",
+        "📊 INTERPRETASI UJI VARIANS\n",
+        "════════════════════════════════════════════════\n",
+        "❌ Status: Error dalam pengujian\n",
+        "📝 Detail Error:", e$message, "\n",
+        "💡 Saran: Pastikan variabel faktor memiliki minimal\n   2 level dan data numerik tidak kosong.\n"
       )
-    }
+    })
     
+    # GABUNGKAN KEDUA INTERPRETASI (Proporsi selalu muncul pertama)
     paste(prop_interpretation, var_interpretation)
   })
   
@@ -1693,39 +1735,69 @@ server <- function(input, output, session) {
         title: 'Metadata Dataset Social Vulnerability Index (SoVI)'
         author: 'DAMAR Dashboard'
         date: '`r Sys.Date()`'
-        output: pdf_document
+        output: 
+          pdf_document:
+            latex_engine: xelatex
+            geometry: margin=1in
+            fontsize: 11pt
+            linestretch: 1.2
+        header-includes:
+          - \\usepackage{fancyhdr}
+          - \\usepackage{xcolor}
+          - \\usepackage{booktabs}
+          - \\pagestyle{fancy}
+          - \\fancyhf{}
+          - \\fancyhead[L]{\\textcolor{blue}{DAMAR Dashboard}}
+          - \\fancyhead[R]{\\textcolor{blue}{Metadata SoVI}}
+          - \\fancyfoot[C]{\\thepage}
         ---
         
-        # Informasi Dataset
+        \\textcolor{blue}{\\huge{Dataset Information}}
+        
+        \\vspace{0.5cm}
         
         **Nama Dataset:** Social Vulnerability Index (SoVI) Data
         
-        **Sumber Referensi:** Data descriptor: Social vulnerability to environmental hazards in Indonesian coastal cities (https://www.sciencedirect.com/science/article/pii/S2352340921010180)
+        **Sumber Referensi:** Data descriptor: Social vulnerability to environmental hazards in Indonesian coastal cities
+        
+        **URL:** \\small{\\url{https://www.sciencedirect.com/science/article/pii/S2352340921010180}}
         
         **DOI:** 10.1016/j.dib.2021.107718
         
         **Journal:** Data in Brief, Elsevier
         
-        ## Struktur Data
+        \\vspace{0.3cm}
         
-        - **Variabel numerik:** Berbagai indikator kerentanan sosial
-        - **Variabel spasial:** Informasi geografis kabupaten/kota
-        - **Unit observasi:** Kabupaten/kota pesisir di Indonesia
-        - **Skala pengukuran:** Rasio dan interval untuk analisis statistik parametrik
+        \\textcolor{blue}{\\Large{Struktur Data}}
         
-        ## Kegunaan Analitis
+        \\begin{itemize}
+        \\item \\textbf{Variabel numerik:} Berbagai indikator kerentanan sosial (demografi, ekonomi, infrastruktur)
+        \\item \\textbf{Variabel spasial:} Informasi geografis kabupaten/kota Indonesia
+        \\item \\textbf{Unit observasi:} Kabupaten/kota pesisir di Indonesia
+        \\item \\textbf{Skala pengukuran:} Rasio dan interval untuk analisis statistik parametrik
+        \\end{itemize}
         
-        - Identifikasi pola kerentanan sosial secara spasial
-        - Perbandingan tingkat kerentanan antar wilayah  
-        - Analisis faktor-faktor yang mempengaruhi kerentanan
-        - Pemodelan prediktif untuk penilaian risiko
+        \\vspace{0.3cm}
         
-        ## Limitasi dan Rekomendasi
+        \\textcolor{blue}{\\Large{Kegunaan Analitis}}
         
-        - Data cross-sectional, tidak menggambarkan perubahan temporal
-        - Lakukan uji normalitas sebelum analisis parametrik
-        - Pertimbangkan transformasi data jika distribusi sangat miring
-        - Validasi hasil dengan pengetahuan kontekstual wilayah
+        \\begin{itemize}
+        \\item Identifikasi pola kerentanan sosial secara spasial
+        \\item Perbandingan tingkat kerentanan antar wilayah
+        \\item Analisis faktor-faktor yang mempengaruhi kerentanan
+        \\item Pemodelan prediktif untuk penilaian risiko
+        \\end{itemize}
+        
+        \\vspace{0.3cm}
+        
+        \\textcolor{blue}{\\Large{Limitasi dan Rekomendasi}}
+        
+        \\begin{itemize}
+        \\item Data cross-sectional, tidak menggambarkan perubahan temporal
+        \\item Lakukan uji normalitas sebelum analisis parametrik
+        \\item Pertimbangkan transformasi data jika distribusi sangat miring
+        \\item Validasi hasil dengan pengetahuan kontekstual wilayah
+        \\end{itemize}
       ", temp_file)
       rmarkdown::render(temp_file, output_file = file, envir = new.env())
     }
@@ -1740,33 +1812,87 @@ server <- function(input, output, session) {
       temp_file <- tempfile(fileext = ".Rmd")
       writeLines(sprintf("
         ---
-        title: 'Laporan Persiapan Data'
-        author: 'DAMAR Dashboard'
+        title: 'Laporan Persiapan Data - DAMAR'
+        author: 'Dashboard Analisis Multivariat dan Regresi'
         date: '`r Sys.Date()`'
-        output: pdf_document
+        output: 
+          pdf_document:
+            latex_engine: xelatex
+            geometry: margin=0.8in
+            fontsize: 11pt
+            linestretch: 1.3
+        header-includes:
+          - \\usepackage{fancyhdr}
+          - \\usepackage{xcolor}
+          - \\usepackage{booktabs}
+          - \\usepackage{longtable}
+          - \\pagestyle{fancy}
+          - \\fancyhf{}
+          - \\fancyhead[L]{\\textcolor{purple}{DAMAR}}
+          - \\fancyhead[R]{\\textcolor{purple}{Persiapan Data}}
+          - \\fancyfoot[C]{\\thepage}
         ---
         
-        # Status Pembersihan Data
+        \\textcolor{purple}{\\huge{Status Pembersihan Data}}
+        
+        \\vspace{0.5cm}
         
         %s
         
-        # Ringkasan Data
+        \\vspace{0.5cm}
         
-        ```{r, echo=FALSE, results='asis'}
+        \\textcolor{purple}{\\Large{Ringkasan Statistik Data}}
+        
+        ```{r, echo=FALSE, results='asis', warning=FALSE, message=FALSE}
         library(knitr)
-        data_summary <- summary(cleaned_data())
-        kable(data_summary, caption = 'Statistik Deskriptif Data')
+        library(dplyr)
+        
+        # Buat ringkasan yang lebih kompak
+        data_summary <- cleaned_data() %%>%%
+          select_if(is.numeric) %%>%%
+          summary()
+        
+        # Format untuk PDF yang rapi
+        if(ncol(data_summary) > 6) {
+          # Jika terlalu banyak kolom, bagi menjadi beberapa tabel
+          n_cols <- ncol(data_summary)
+          chunk_size <- 4
+          for(i in seq(1, n_cols, chunk_size)) {
+            end_idx <- min(i + chunk_size - 1, n_cols)
+            chunk_data <- data_summary[, i:end_idx, drop = FALSE]
+            cat('\\n\\n')
+            print(kable(chunk_data, booktabs = TRUE, 
+                       caption = paste('Statistik Deskriptif - Bagian', ceiling(i/chunk_size))))
+          }
+        } else {
+          print(kable(data_summary, booktabs = TRUE, 
+                     caption = 'Statistik Deskriptif Data'))
+        }
         ```
         
-        # Informasi Dimensi Data
+        \\vspace{0.5cm}
         
-        - Jumlah observasi: %d
-        - Jumlah variabel: %d
-        - Status pembersihan: %s
+        \\textcolor{purple}{\\Large{Informasi Dimensi Data}}
         
-        # Interpretasi
+        \\begin{itemize}
+        \\item \\textbf{Jumlah observasi:} %d
+        \\item \\textbf{Jumlah variabel:} %d  
+        \\item \\textbf{Status pembersihan:} %s
+        \\end{itemize}
         
-        Data telah diproses sesuai dengan opsi pembersihan yang dipilih. Semua analisis selanjutnya akan menggunakan data yang telah dipersiapkan ini.
+        \\vspace{0.5cm}
+        
+        \\textcolor{purple}{\\Large{Interpretasi dan Rekomendasi}}
+        
+        Data telah diproses sesuai dengan opsi pembersihan yang dipilih. 
+        Semua analisis selanjutnya akan menggunakan data yang telah dipersiapkan ini.
+        
+        \\textbf{Catatan Penting:}
+        \\begin{itemize}
+        \\item Pastikan data sudah sesuai dengan kebutuhan analisis
+        \\item Periksa distribusi data sebelum melakukan uji parametrik
+        \\item Pertimbangkan transformasi jika diperlukan
+        \\end{itemize}
       ", get_clean_status_text(), nrow(cleaned_data()), ncol(cleaned_data()), clean_status()), temp_file)
       rmarkdown::render(temp_file, output_file = file, envir = new.env())
     }
@@ -1781,35 +1907,139 @@ server <- function(input, output, session) {
       temp_file <- tempfile(fileext = ".Rmd")
       writeLines(sprintf("
         ---
-        title: 'Laporan Eksplorasi Data'
-        author: 'DAMAR Dashboard'
+        title: 'Laporan Eksplorasi Data - DAMAR'
+        subtitle: 'Analisis Variabel: %s'
+        author: 'Dashboard Analisis Multivariat dan Regresi'
         date: '`r Sys.Date()`'
-        output: pdf_document
+        output: 
+          pdf_document:
+            latex_engine: xelatex
+            geometry: margin=0.8in
+            fontsize: 11pt
+            linestretch: 1.3
+        header-includes:
+          - \\usepackage{fancyhdr}
+          - \\usepackage{xcolor}
+          - \\usepackage{booktabs}
+          - \\usepackage{graphicx}
+          - \\pagestyle{fancy}
+          - \\fancyhf{}
+          - \\fancyhead[L]{\\textcolor{teal}{DAMAR}}
+          - \\fancyhead[R]{\\textcolor{teal}{Eksplorasi Data}}
+          - \\fancyfoot[C]{\\thepage}
         ---
         
-        # Analisis Variabel: %s
+        \\textcolor{teal}{\\huge{Analisis Eksplorasi Data}}
         
-        ## Status Data
+        \\vspace{0.3cm}
+        
+        \\textcolor{teal}{\\Large{Variabel: %s}}
+        
+        \\vspace{0.5cm}
+        
+        \\textcolor{teal}{\\large{Status Data}}
+        
         %s
         
-        ## Statistik Deskriptif
+        \\vspace{0.5cm}
         
-        ```{r, echo=FALSE, results='asis'}
+        \\textcolor{teal}{\\large{Statistik Deskriptif}}
+        
+        ```{r, echo=FALSE, results='asis', warning=FALSE, message=FALSE}
         library(knitr)
-        stats <- summary(cleaned_data()[[%s]])
-        kable(data.frame(Statistik = names(stats), Nilai = as.numeric(stats)), 
-              caption = 'Statistik Deskriptif %s')
+        library(dplyr)
+        
+        # Hitung statistik deskriptif yang komprehensif
+        var_data <- cleaned_data()[[%s]]
+        stats <- summary(var_data)
+        
+        # Tambahkan statistik tambahan
+        additional_stats <- c(
+          'Std. Deviasi' = round(sd(var_data, na.rm = TRUE), 4),
+          'Varians' = round(var(var_data, na.rm = TRUE), 4),
+          'Skewness' = round(moments::skewness(var_data, na.rm = TRUE), 4),
+          'Kurtosis' = round(moments::kurtosis(var_data, na.rm = TRUE), 4)
+        )
+        
+        # Gabungkan semua statistik
+        all_stats <- c(stats, additional_stats)
+        
+        # Buat tabel yang rapi
+        stats_df <- data.frame(
+          Statistik = names(all_stats),
+          Nilai = as.numeric(all_stats)
+        )
+        
+        print(kable(stats_df, booktabs = TRUE, digits = 4,
+                   caption = paste('Statistik Deskriptif:', %s)))
         ```
         
-        ## Interpretasi
+        \\vspace{0.5cm}
         
-        %s
+        \\textcolor{teal}{\\large{Interpretasi Statistik}}
         
-        ## Visualisasi
+        ```{r, echo=FALSE, results='asis', warning=FALSE, message=FALSE}
+        # Buat interpretasi otomatis
+        var_data <- cleaned_data()[[%s]]
+        mean_val <- mean(var_data, na.rm = TRUE)
+        median_val <- median(var_data, na.rm = TRUE)
+        sd_val <- sd(var_data, na.rm = TRUE)
         
-        Grafik histogram, boxplot, dan peta telah dihasilkan untuk memberikan gambaran distribusi data secara visual.
-      ", input$var_desc, get_clean_status_text(), shQuote(input$var_desc), input$var_desc, 
-      "Analisis eksplorasi data memberikan pemahaman awal tentang karakteristik dan distribusi variabel yang dipilih."), temp_file)
+        # Analisis distribusi
+        if (abs(mean_val - median_val) / sd_val < 0.1) {
+          dist_type <- 'relatif simetris'
+        } else if (mean_val > median_val) {
+          dist_type <- 'miring ke kanan (positively skewed)'
+        } else {
+          dist_type <- 'miring ke kiri (negatively skewed)'
+        }
+        
+        # Analisis variabilitas
+        cv <- sd_val / mean_val * 100
+        if (cv < 15) {
+          var_level <- 'rendah'
+        } else if (cv < 30) {
+          var_level <- 'sedang'
+        } else {
+          var_level <- 'tinggi'
+        }
+        
+        cat('\\n\\n')
+        cat('\\\\textbf{Analisis Distribusi:}\\n\\n')
+        cat('Data menunjukkan distribusi yang', dist_type, 'dengan rata-rata', 
+            round(mean_val, 2), 'dan median', round(median_val, 2), '.\\n\\n')
+        
+        cat('\\\\textbf{Analisis Variabilitas:}\\n\\n')
+        cat('Koefisien variasi sebesar', round(cv, 1), '\\\\%% menunjukkan tingkat variabilitas', 
+            var_level, 'dalam data.\\n\\n')
+        
+        cat('\\\\textbf{Implikasi untuk Analisis SoVI:}\\n\\n')
+        cat('Karakteristik distribusi ini perlu dipertimbangkan dalam pemilihan metode statistik yang appropriate untuk analisis kerentanan sosial selanjutnya.')
+        ```
+        
+        \\vspace{0.5cm}
+        
+        \\textcolor{teal}{\\large{Visualisasi Data}}
+        
+        Dashboard telah menghasilkan visualisasi interaktif berupa:
+        
+        \\begin{itemize}
+        \\item \\textbf{Histogram:} Menunjukkan distribusi frekuensi data
+        \\item \\textbf{Boxplot:} Mengidentifikasi outlier dan kuartil
+        \\item \\textbf{Peta Tematik:} Visualisasi pola spasial (jika data geografis tersedia)
+        \\end{itemize}
+        
+        \\vspace{0.3cm}
+        
+        \\textcolor{teal}{\\large{Rekomendasi Analisis Lanjutan}}
+        
+        \\begin{itemize}
+        \\item Lakukan uji normalitas sebelum analisis parametrik
+        \\item Pertimbangkan transformasi data jika distribusi sangat miring
+        \\item Identifikasi dan tangani outlier sesuai konteks penelitian
+        \\item Validasi hasil dengan domain knowledge tentang kerentanan sosial
+        \\end{itemize}
+      ", input$var_desc, input$var_desc, get_clean_status_text(), shQuote(input$var_desc), shQuote(input$var_desc), shQuote(input$var_desc)), temp_file)
       rmarkdown::render(temp_file, output_file = file, envir = new.env())
     }
   )
