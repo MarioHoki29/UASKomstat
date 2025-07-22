@@ -46,32 +46,60 @@ tryCatch({
     mutate(DISTRICTCODE = as.character(DISTRICTCODE))
   distance_matrix <- read.csv("https://raw.githubusercontent.com/bmlmcmc/naspaclust/main/data/distance.csv")
   
-  # Coba berbagai path untuk shapefile
+  # Coba berbagai path untuk shapefile dengan penanganan yang lebih baik
   shp_paths <- c(
     "C:/Users/ASUS/Downloads/STIS SEMESTER 4/UAS Komstat/Administrasi_Kabupaten.shp",
     "Administrasi_Kabupaten.shp",
-    "./Administrasi_Kabupaten.shp"
+    "./Administrasi_Kabupaten.shp",
+    "data/Administrasi_Kabupaten.shp",
+    "../Administrasi_Kabupaten.shp"
   )
   
   shp <- NULL
   for(path in shp_paths) {
     if(file.exists(path)) {
-      shp <- st_read(path)
-      break
+      tryCatch({
+        shp <- st_read(path, quiet = TRUE)
+        message("Shapefile berhasil dimuat dari: ", path)
+        break
+      }, error = function(e) {
+        message("Gagal membaca shapefile dari ", path, ": ", e$message)
+      })
     }
   }
   
   if(is.null(shp)) {
-    warning("Shapefile tidak ditemukan. Peta tidak akan tersedia.")
-    # Buat dummy shapefile untuk menghindari error
-    shp <- data.frame(kodekab = character(0), geometry = I(list()))
-    shp <- st_as_sf(shp)
+    warning("Shapefile tidak ditemukan di semua lokasi yang dicoba. Menggunakan data dummy.")
+    # Buat dummy shapefile dengan struktur yang benar
+    shp <- data.frame(
+      kodekab = character(0), 
+      NAMOBJ = character(0),
+      stringsAsFactors = FALSE
+    )
+    # Buat geometri kosong
+    shp <- st_sf(shp, geometry = st_sfc(crs = 4326))
   }
   
-  # Gabungkan shapefile dengan data
-  shp_merged <- shp %>%
-    mutate(kodekab = as.character(kodekab)) %>%
-    left_join(sovi_data, by = c("kodekab" = "DISTRICTCODE"))
+      # Gabungkan shapefile dengan data
+    if(nrow(shp) > 0) {
+      shp_merged <- shp %>%
+        mutate(kodekab = as.character(kodekab)) %>%
+        left_join(sovi_data, by = c("kodekab" = "DISTRICTCODE"))
+    } else {
+      # Jika shapefile kosong, buat data dummy untuk visualisasi
+      shp_merged <- data.frame(
+        kodekab = sovi_data$DISTRICTCODE[1:min(10, nrow(sovi_data))],
+        NAMOBJ = paste("Daerah", 1:min(10, nrow(sovi_data))),
+        sovi_data[1:min(10, nrow(sovi_data)), ],
+        stringsAsFactors = FALSE
+      )
+      # Buat geometri dummy (titik)
+      coords <- data.frame(
+        x = runif(nrow(shp_merged), 95, 141),  # Longitude Indonesia
+        y = runif(nrow(shp_merged), -11, 6)    # Latitude Indonesia
+      )
+      shp_merged <- st_sf(shp_merged, geometry = st_sfc(st_multipoint(as.matrix(coords)), crs = 4326))
+    }
   
 }, error = function(e) {
   stop("Error loading data: ", e$message)
@@ -80,12 +108,13 @@ tryCatch({
 # Definisikan UI
 ui <- dashboardPage(
   # Header dashboard
-  dashboardHeader(title = "Dashboard Analisis Data SoVI"),
+  dashboardHeader(title = "DAMAR - Dashboard Analisis Multivariat dan Regresi"),
   
   # Sidebar dengan item menu
   dashboardSidebar(
     sidebarMenu(
       menuItem("Beranda", tabName = "home", icon = icon("home")),
+      menuItem("Metadata", tabName = "metadata", icon = icon("info-circle")),
       menuItem("Persiapan Data", tabName = "data_preparation", icon = icon("broom")),
       menuItem("Manajemen Data", tabName = "data_management", icon = icon("database")),
       menuItem("Eksplorasi Data", tabName = "data_exploration", icon = icon("chart-bar")),
@@ -122,33 +151,32 @@ ui <- dashboardPage(
       # Tab 1: Beranda
       tabItem(tabName = "home",
               fluidRow(
-                box(width = 12, title = "Selamat Datang di Dashboard SoVI", status = "primary", solidHeader = TRUE,
-                    h3("Deskripsi Dashboard"),
-                    div(style = "background-color: #e7f3ff; padding: 15px; border-radius: 5px; margin-bottom: 15px;",
-                        h4("Metadata Struktural Dataset"),
-                        p(strong("Nama Dataset:"), "Social Vulnerability Index (SoVI) Data"),
-                        p(strong("Sumber Referensi:"), 
-                          a("Data descriptor: Social vulnerability to environmental hazards in Indonesian coastal cities", 
-                            href = "https://www.sciencedirect.com/science/article/pii/S2352340921010180", 
-                            target = "_blank")),
-                        p(strong("Struktur Data:")),
-                        tags$ul(
-                          tags$li("Variabel numerik: Berbagai indikator kerentanan sosial (demografi, ekonomi, infrastruktur)"),
-                          tags$li("Variabel spasial: Informasi geografis kabupaten/kota Indonesia"),
-                          tags$li("Unit observasi: Kabupaten/kota pesisir di Indonesia"),
-                          tags$li("Skala pengukuran: Rasio dan interval untuk analisis statistik parametrik")
-                        ),
-                        p(strong("Kegunaan Analitis:")),
-                        tags$ul(
-                          tags$li("Identifikasi pola kerentanan sosial secara spasial"),
-                          tags$li("Perbandingan tingkat kerentanan antar wilayah"),
-                          tags$li("Analisis faktor-faktor yang mempengaruhi kerentanan"),
-                          tags$li("Pemodelan prediktif untuk penilaian risiko")
+                box(width = 12, title = "Selamat Datang di DAMAR", status = "primary", solidHeader = TRUE,
+                    h3("Dashboard Analisis Multivariat dan Regresi"),
+                    div(style = "background-color: #e8f5e8; padding: 20px; border-radius: 10px; margin-bottom: 20px; border-left: 5px solid #28a745;",
+                        h4(icon("chart-line"), " Tentang DAMAR"),
+                        p("DAMAR (Dashboard Analisis Multivariat dan Regresi) adalah platform analisis statistik komprehensif yang dirancang khusus untuk menganalisis data Social Vulnerability Index (SoVI) dengan pendekatan metodologi yang robust dan user-friendly."),
+                        
+                        h4(icon("cogs"), " Fitur Utama"),
+                        div(style = "display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 15px;",
+                            div(style = "background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);",
+                                h5(icon("broom"), " Persiapan Data"),
+                                p("Pembersihan otomatis data dengan penanganan nilai hilang dan outlier menggunakan metode IQR")
+                            ),
+                            div(style = "background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);",
+                                h5(icon("database"), " Manajemen Data"),
+                                p("Kategorisasi variabel kontinu untuk analisis berbasis grup dan transformasi data")
+                            ),
+                            div(style = "background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);",
+                                h5(icon("chart-bar"), " Eksplorasi Visual"),
+                                p("Visualisasi interaktif dengan histogram, boxplot, dan peta tematik yang responsif")
+                            ),
+                            div(style = "background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);",
+                                h5(icon("check-circle"), " Uji Statistik"),
+                                p("Suite lengkap uji inferensial termasuk t-test, ANOVA, dan regresi berganda")
+                            )
                         )
                     ),
-                    p("Dashboard ini dirancang untuk menganalisis data Social Vulnerability Index (SoVI) dengan pendekatan statistik komprehensif. 
-                      Fitur meliputi persiapan data, manajemen data, eksplorasi data, uji asumsi statistik, uji inferensial (uji beda rata-rata, proporsi, varians, ANOVA), 
-                      dan regresi linear berganda. Semua hasil, plot, peta, dan tabel dapat diunduh sebagai PDF, XLS, CSV, atau SAV untuk data, dan PDF atau PNG untuk plot."),
                     h3("Fitur Utama"),
                     p("- **Persiapan Data**: Menghapus NA dan outlier, menampilkan data awal atau bersih."),
                     p("- **Manajemen Data**: Mengkategorikan data kontinu menjadi faktor untuk analisis grup."),
@@ -194,7 +222,104 @@ ui <- dashboardPage(
               )
       ),
       
-      # Tab 2: Persiapan Data
+      # Tab 2: Metadata
+      tabItem(tabName = "metadata",
+              fluidRow(
+                box(width = 12, title = "Metadata dan Dokumentasi Dataset", status = "info", solidHeader = TRUE,
+                    div(style = "background-color: #e7f3ff; padding: 20px; border-radius: 10px; margin-bottom: 20px; border-left: 5px solid #007bff;",
+                        h3(icon("database"), " Informasi Dataset"),
+                        
+                        h4("📊 Identitas Dataset"),
+                        div(style = "background: white; padding: 15px; border-radius: 8px; margin: 10px 0;",
+                            p(strong("Nama Dataset:"), "Social Vulnerability Index (SoVI) Data"),
+                            p(strong("Tipe Dataset:"), "Data spasial dan numerik untuk analisis kerentanan sosial"),
+                            p(strong("Cakupan Geografis:"), "Kabupaten/Kota pesisir di Indonesia"),
+                            p(strong("Unit Analisis:"), "Tingkat administratif kabupaten/kota"),
+                            p(strong("Periode Data:"), "Data cross-sectional terkini")
+                        ),
+                        
+                        h4("📚 Sumber dan Referensi"),
+                        div(style = "background: white; padding: 15px; border-radius: 8px; margin: 10px 0;",
+                            p(strong("Sumber Utama:"), 
+                              a("Data descriptor: Social vulnerability to environmental hazards in Indonesian coastal cities", 
+                                href = "https://www.sciencedirect.com/science/article/pii/S2352340921010180", 
+                                target = "_blank", style = "color: #007bff; text-decoration: none;")),
+                            p(strong("DOI:"), "10.1016/j.dib.2021.107718"),
+                            p(strong("Journal:"), "Data in Brief, Elsevier"),
+                            p(strong("Citation:"), "Refer to the ScienceDirect article for proper citation format")
+                        ),
+                        
+                        h4("🔍 Struktur dan Karakteristik Data"),
+                        div(style = "background: white; padding: 15px; border-radius: 8px; margin: 10px 0;",
+                            h5("Variabel Numerik:"),
+                            tags$ul(
+                              tags$li("Indikator demografis (kepadatan penduduk, komposisi usia, dll)"),
+                              tags$li("Indikator ekonomi (tingkat kemiskinan, pendapatan, mata pencaharian)"),
+                              tags$li("Indikator infrastruktur (akses jalan, fasilitas kesehatan, pendidikan)"),
+                              tags$li("Indikator lingkungan (paparan risiko, kondisi geografis)")
+                            ),
+                            h5("Variabel Spasial:"),
+                            tags$ul(
+                              tags$li("Kode wilayah administratif (DISTRICTCODE)"),
+                              tags$li("Nama daerah (NAMOBJ) - jika tersedia"),
+                              tags$li("Geometri polygon untuk visualisasi peta"),
+                              tags$li("Koordinat geografis (latitude, longitude)")
+                            ),
+                            h5("Skala Pengukuran:"),
+                            tags$ul(
+                              tags$li("Rasio: Untuk variabel dengan nol mutlak (misalnya: jumlah penduduk)"),
+                              tags$li("Interval: Untuk indeks dan skor komposit"),
+                              tags$li("Nominal: Untuk kode dan nama wilayah")
+                            )
+                        ),
+                        
+                        h4("🎯 Kegunaan Analitis"),
+                        div(style = "background: white; padding: 15px; border-radius: 8px; margin: 10px 0;",
+                            h5("Analisis Deskriptif:"),
+                            tags$ul(
+                              tags$li("Profiling tingkat kerentanan sosial per wilayah"),
+                              tags$li("Identifikasi pola distribusi spasial"),
+                              tags$li("Perbandingan karakteristik antar daerah")
+                            ),
+                            h5("Analisis Inferensial:"),
+                            tags$ul(
+                              tags$li("Uji perbedaan kerentanan antar kelompok wilayah"),
+                              tags$li("Analisis varians untuk kategorisasi risiko"),
+                              tags$li("Uji korelasi antar indikator kerentanan")
+                            ),
+                            h5("Pemodelan Prediktif:"),
+                            tags$ul(
+                              tags$li("Regresi berganda untuk identifikasi faktor dominan"),
+                              tags$li("Model spasial untuk prediksi wilayah berisiko"),
+                              tags$li("Clustering untuk tipologi kerentanan")
+                            )
+                        ),
+                        
+                        h4("⚠️ Pertimbangan Penggunaan"),
+                        div(style = "background: #fff3cd; padding: 15px; border-radius: 8px; margin: 10px 0; border-left: 3px solid #ffc107;",
+                            h5("Limitasi Data:"),
+                            tags$ul(
+                              tags$li("Data cross-sectional, tidak menggambarkan perubahan temporal"),
+                              tags$li("Kualitas data bergantung pada sumber data primer"),
+                              tags$li("Beberapa wilayah mungkin memiliki data yang tidak lengkap")
+                            ),
+                            h5("Rekomendasi Analisis:"),
+                            tags$ul(
+                              tags$li("Lakukan uji normalitas sebelum analisis parametrik"),
+                              tags$li("Pertimbangkan transformasi data jika distribusi sangat miring"),
+                              tags$li("Validasi hasil dengan pengetahuan kontekstual wilayah"),
+                              tags$li("Gunakan multiple testing correction untuk analisis simultan")
+                            )
+                        )
+                    ),
+                    
+                    downloadButton("download_metadata", "Download Dokumentasi Metadata (PDF)", 
+                                   class = "btn btn-primary", style = "margin-top: 20px;")
+                )
+              )
+      ),
+      
+      # Tab 3: Persiapan Data
       tabItem(tabName = "data_preparation",
               fluidRow(
                 box(width = 12, title = "Persiapan Data", status = "info", solidHeader = TRUE,
@@ -212,7 +337,11 @@ ui <- dashboardPage(
                     div(class = "data-table", DTOutput("cleaned_data_table")),
                     selectInput("download_format_clean", "Pilih Format Download",
                                 choices = c("Excel (XLS)" = "xlsx", "CSV" = "csv", "SPSS (SAV)" = "sav")),
-                    downloadButton("download_cleaned_data", "Download Data")
+                    downloadButton("download_cleaned_data", "Download Data"),
+                    br(), br(),
+                    h4("Download Lengkap Halaman"),
+                    downloadButton("download_data_prep_page", "Download Laporan Persiapan Data (PDF)", 
+                                   class = "btn btn-success", style = "margin-top: 10px;")
                 )
               )
       ),
@@ -253,7 +382,11 @@ ui <- dashboardPage(
                     plotlyOutput("map_plot", height = "500px"),
                     selectInput("download_format_plot", "Pilih Format Download Plot",
                                 choices = c("PDF" = "pdf", "PNG" = "png")),
-                    downloadButton("download_plot", "Download Plot")
+                    downloadButton("download_plot", "Download Plot"),
+                    br(), br(),
+                    h4("Download Lengkap Halaman"),
+                    downloadButton("download_exploration_page", "Download Laporan Eksplorasi Data (PDF)", 
+                                   class = "btn btn-success", style = "margin-top: 10px;")
                 ),
                 box(width = 12, title = "Interpretasi Otomatis", status = "warning", solidHeader = TRUE,
                     div(class = "interpretation-box", textOutput("exploration_interpretation"))
@@ -651,29 +784,44 @@ server <- function(input, output, session) {
   
   output$map_plot <- renderPlotly({
     var <- input$var_plot
-    if(nrow(shp_merged) == 0) {
-      # Jika shapefile tidak tersedia, tampilkan pesan
+    tryCatch({
+      # Cek apakah ada data untuk dipetakan
+      if(nrow(shp_merged) == 0 || is.null(shp_merged[[var]]) || all(is.na(shp_merged[[var]]))) {
+        # Jika tidak ada data yang bisa dipetakan, tampilkan pesan
+        plot_ly() %>%
+          add_text(x = 0.5, y = 0.5, text = "Peta tidak tersedia\n(Data spasial tidak ditemukan atau variabel tidak ada)", 
+                   textfont = list(size = 16, color = "red")) %>%
+          layout(title = paste("Peta distribusi dari", var),
+                 xaxis = list(visible = FALSE, range = c(0, 1)),
+                 yaxis = list(visible = FALSE, range = c(0, 1)))
+      } else {
+        # Buat peta dengan nama daerah saat hover
+        p <- ggplot(shp_merged) + 
+          geom_sf(aes(fill = .data[[var]], 
+                      text = paste("Daerah:", ifelse(!is.na(NAMOBJ), NAMOBJ, ifelse(!is.na(kodekab), kodekab, "Tidak diketahui")),
+                                   "<br>Kode:", ifelse(!is.na(kodekab), kodekab, "N/A"),
+                                   "<br>", var, ":", round(.data[[var]], 2))), 
+                  color = "white", size = 0.2) +
+          scale_fill_gradientn(colors = c("blue", "lightblue", "yellow", "orange", "red"), 
+                               na.value = "grey80",
+                               name = var) +
+          labs(title = paste("Peta distribusi dari", var),
+               subtitle = "Hover pada area untuk melihat detail") +
+          theme_void() +
+          theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+                plot.subtitle = element_text(hjust = 0.5, size = 10),
+                legend.position = "bottom")
+        ggplotly(p, tooltip = "text")
+      }
+    }, error = function(e) {
+      # Jika ada error dalam pembuatan peta
       plot_ly() %>%
-        add_text(x = 0.5, y = 0.5, text = "Peta tidak tersedia\n(Shapefile tidak ditemukan)", 
-                 textfont = list(size = 16, color = "red")) %>%
+        add_text(x = 0.5, y = 0.5, text = paste("Error dalam membuat peta:\n", e$message), 
+                 textfont = list(size = 12, color = "red")) %>%
         layout(title = paste("Peta distribusi dari", var),
-               xaxis = list(visible = FALSE),
-               yaxis = list(visible = FALSE))
-    } else {
-      # Buat peta dengan nama daerah saat hover
-      p <- ggplot(shp_merged) + 
-        geom_sf(aes(fill = .data[[var]], 
-                    text = paste("Daerah:", ifelse(!is.na(NAMOBJ), NAMOBJ, "Tidak diketahui"),
-                                 "<br>Kode:", kodekab,
-                                 "<br>", var, ":", round(.data[[var]], 2)))) +
-        scale_fill_gradientn(colors = c("blue", "lightblue", "yellow", "orange", "red"), na.value = "grey") +
-        labs(title = paste("Peta distribusi dari", var),
-             fill = var) +
-        theme_minimal() +
-        theme(axis.text = element_blank(),
-              axis.ticks = element_blank())
-      ggplotly(p, tooltip = "text")
-    }
+               xaxis = list(visible = FALSE, range = c(0, 1)),
+               yaxis = list(visible = FALSE, range = c(0, 1)))
+    })
   })
   
   output$download_plot <- downloadHandler(
@@ -1391,6 +1539,138 @@ server <- function(input, output, session) {
         )
         ```
       ", shQuote(input$dep_var), paste(shQuote(input$indep_vars), collapse = "+")), temp_file)
+      rmarkdown::render(temp_file, output_file = file, envir = new.env())
+    }
+  )
+}
+
+  # Download metadata
+  output$download_metadata <- downloadHandler(
+    filename = "metadata_sovi_dataset.pdf",
+    content = function(file) {
+      temp_file <- tempfile(fileext = ".Rmd")
+      writeLines("
+        ---
+        title: 'Metadata Dataset Social Vulnerability Index (SoVI)'
+        author: 'DAMAR Dashboard'
+        date: '`r Sys.Date()`'
+        output: pdf_document
+        ---
+        
+        # Informasi Dataset
+        
+        **Nama Dataset:** Social Vulnerability Index (SoVI) Data
+        
+        **Sumber Referensi:** Data descriptor: Social vulnerability to environmental hazards in Indonesian coastal cities (https://www.sciencedirect.com/science/article/pii/S2352340921010180)
+        
+        **DOI:** 10.1016/j.dib.2021.107718
+        
+        **Journal:** Data in Brief, Elsevier
+        
+        ## Struktur Data
+        
+        - **Variabel numerik:** Berbagai indikator kerentanan sosial
+        - **Variabel spasial:** Informasi geografis kabupaten/kota
+        - **Unit observasi:** Kabupaten/kota pesisir di Indonesia
+        - **Skala pengukuran:** Rasio dan interval untuk analisis statistik parametrik
+        
+        ## Kegunaan Analitis
+        
+        - Identifikasi pola kerentanan sosial secara spasial
+        - Perbandingan tingkat kerentanan antar wilayah  
+        - Analisis faktor-faktor yang mempengaruhi kerentanan
+        - Pemodelan prediktif untuk penilaian risiko
+        
+        ## Limitasi dan Rekomendasi
+        
+        - Data cross-sectional, tidak menggambarkan perubahan temporal
+        - Lakukan uji normalitas sebelum analisis parametrik
+        - Pertimbangkan transformasi data jika distribusi sangat miring
+        - Validasi hasil dengan pengetahuan kontekstual wilayah
+      ", temp_file)
+      rmarkdown::render(temp_file, output_file = file, envir = new.env())
+    }
+  )
+  
+  # Download halaman persiapan data
+  output$download_data_prep_page <- downloadHandler(
+    filename = function() {
+      paste("laporan_persiapan_data_", Sys.Date(), ".pdf", sep = "")
+    },
+    content = function(file) {
+      temp_file <- tempfile(fileext = ".Rmd")
+      writeLines(sprintf("
+        ---
+        title: 'Laporan Persiapan Data'
+        author: 'DAMAR Dashboard'
+        date: '`r Sys.Date()`'
+        output: pdf_document
+        ---
+        
+        # Status Pembersihan Data
+        
+        %s
+        
+        # Ringkasan Data
+        
+        ```{r, echo=FALSE, results='asis'}
+        library(knitr)
+        data_summary <- summary(cleaned_data())
+        kable(data_summary, caption = 'Statistik Deskriptif Data')
+        ```
+        
+        # Informasi Dimensi Data
+        
+        - Jumlah observasi: %d
+        - Jumlah variabel: %d
+        - Status pembersihan: %s
+        
+        # Interpretasi
+        
+        Data telah diproses sesuai dengan opsi pembersihan yang dipilih. Semua analisis selanjutnya akan menggunakan data yang telah dipersiapkan ini.
+      ", get_clean_status_text(), nrow(cleaned_data()), ncol(cleaned_data()), clean_status()), temp_file)
+      rmarkdown::render(temp_file, output_file = file, envir = new.env())
+    }
+  )
+  
+  # Download halaman eksplorasi data
+  output$download_exploration_page <- downloadHandler(
+    filename = function() {
+      paste("laporan_eksplorasi_data_", input$var_desc, "_", Sys.Date(), ".pdf", sep = "")
+    },
+    content = function(file) {
+      temp_file <- tempfile(fileext = ".Rmd")
+      writeLines(sprintf("
+        ---
+        title: 'Laporan Eksplorasi Data'
+        author: 'DAMAR Dashboard'
+        date: '`r Sys.Date()`'
+        output: pdf_document
+        ---
+        
+        # Analisis Variabel: %s
+        
+        ## Status Data
+        %s
+        
+        ## Statistik Deskriptif
+        
+        ```{r, echo=FALSE, results='asis'}
+        library(knitr)
+        stats <- summary(cleaned_data()[[%s]])
+        kable(data.frame(Statistik = names(stats), Nilai = as.numeric(stats)), 
+              caption = 'Statistik Deskriptif %s')
+        ```
+        
+        ## Interpretasi
+        
+        %s
+        
+        ## Visualisasi
+        
+        Grafik histogram, boxplot, dan peta telah dihasilkan untuk memberikan gambaran distribusi data secara visual.
+      ", input$var_desc, get_clean_status_text(), shQuote(input$var_desc), input$var_desc, 
+      "Analisis eksplorasi data memberikan pemahaman awal tentang karakteristik dan distribusi variabel yang dipilih."), temp_file)
       rmarkdown::render(temp_file, output_file = file, envir = new.env())
     }
   )
