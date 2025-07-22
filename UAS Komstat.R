@@ -82,23 +82,55 @@ tryCatch({
   
   # Gabungkan shapefile dengan data
   if(nrow(shp) > 0) {
+    # Pastikan kolom NAMOBJ ada di shapefile
+    if(!"NAMOBJ" %in% colnames(shp)) {
+      shp$NAMOBJ <- paste("Daerah", seq_len(nrow(shp)))
+    }
+    
+    # Pastikan kolom kodekab ada di shapefile
+    if(!"kodekab" %in% colnames(shp)) {
+      # Coba cari kolom alternatif untuk kode
+      possible_code_cols <- c("CODE", "ID", "KODE", "DISTRICT_CODE", "DISTRICTCODE")
+      found_col <- intersect(possible_code_cols, colnames(shp))
+      if(length(found_col) > 0) {
+        shp$kodekab <- as.character(shp[[found_col[1]]])
+      } else {
+        shp$kodekab <- paste("AUTO", seq_len(nrow(shp)), sep = "_")
+      }
+    }
+    
     shp_merged <- shp %>%
-      mutate(kodekab = as.character(kodekab)) %>%
+      mutate(
+        kodekab = as.character(kodekab),
+        NAMOBJ = as.character(ifelse(is.na(NAMOBJ) | NAMOBJ == "", 
+                                    paste("Daerah", seq_len(nrow(shp))), 
+                                    NAMOBJ))
+      ) %>%
       left_join(sovi_data, by = c("kodekab" = "DISTRICTCODE"))
   } else {
     # Jika shapefile kosong, buat data dummy untuk visualisasi
+    dummy_size <- min(10, nrow(sovi_data))
     shp_merged <- data.frame(
-      kodekab = sovi_data$DISTRICTCODE[1:min(10, nrow(sovi_data))],
-      NAMOBJ = paste("Daerah", 1:min(10, nrow(sovi_data))),
-      sovi_data[1:min(10, nrow(sovi_data)), ],
+      kodekab = sovi_data$DISTRICTCODE[1:dummy_size],
+      NAMOBJ = paste("Daerah", 1:dummy_size),
+      sovi_data[1:dummy_size, ],
       stringsAsFactors = FALSE
     )
-    # Buat geometri dummy (titik)
-    coords <- data.frame(
-      x = runif(nrow(shp_merged), 95, 141),  # Longitude Indonesia
-      y = runif(nrow(shp_merged), -11, 6)    # Latitude Indonesia
-    )
-    shp_merged <- st_sf(shp_merged, geometry = st_sfc(st_multipoint(as.matrix(coords)), crs = 4326))
+    # Buat geometri dummy (polygon sederhana)
+    coords_list <- lapply(1:dummy_size, function(i) {
+      center_x <- runif(1, 95, 141)  # Longitude Indonesia
+      center_y <- runif(1, -11, 6)   # Latitude Indonesia
+      # Buat polygon kecil di sekitar titik center
+      matrix(c(
+        center_x - 0.1, center_y - 0.1,
+        center_x + 0.1, center_y - 0.1,
+        center_x + 0.1, center_y + 0.1,
+        center_x - 0.1, center_y + 0.1,
+        center_x - 0.1, center_y - 0.1
+      ), ncol = 2, byrow = TRUE)
+    })
+    polygons <- st_sfc(lapply(coords_list, function(coords) st_polygon(list(coords))), crs = 4326)
+    shp_merged <- st_sf(shp_merged, geometry = polygons)
   }
   
 }, error = function(e) {
@@ -795,28 +827,66 @@ server <- function(input, output, session) {
                  xaxis = list(visible = FALSE, range = c(0, 1)),
                  yaxis = list(visible = FALSE, range = c(0, 1)))
       } else {
-        # Buat peta dengan nama daerah saat hover
-        p <- ggplot(shp_merged) + 
-          geom_sf(aes(fill = .data[[var]], 
-                      text = paste("Daerah:", ifelse(!is.na(NAMOBJ), NAMOBJ, ifelse(!is.na(kodekab), kodekab, "Tidak diketahui")),
-                                   "<br>Kode:", ifelse(!is.na(kodekab), kodekab, "N/A"),
-                                   "<br>", var, ":", round(.data[[var]], 2))), 
-                  color = "white", size = 0.2) +
-          scale_fill_gradientn(colors = c("blue", "lightblue", "yellow", "orange", "red"), 
-                               na.value = "grey80",
-                               name = var) +
-          labs(title = paste("Peta distribusi dari", var),
-               subtitle = "Hover pada area untuk melihat detail") +
+        # Siapkan data untuk peta dengan penanganan kolom yang mungkin tidak ada
+        map_data <- shp_merged
+        
+        # Cek dan buat kolom NAMOBJ jika tidak ada
+        if(!"NAMOBJ" %in% colnames(map_data)) {
+          map_data$NAMOBJ <- paste("Daerah", seq_len(nrow(map_data)))
+        }
+        
+        # Cek dan buat kolom kodekab jika tidak ada
+        if(!"kodekab" %in% colnames(map_data)) {
+          map_data$kodekab <- paste("Kode", seq_len(nrow(map_data)))
+        }
+        
+        # Buat teks hover yang aman
+        hover_text <- paste(
+          "Daerah:", ifelse(is.na(map_data$NAMOBJ) | map_data$NAMOBJ == "", 
+                           ifelse(is.na(map_data$kodekab) | map_data$kodekab == "", 
+                                 paste("Area", seq_len(nrow(map_data))), 
+                                 map_data$kodekab), 
+                           map_data$NAMOBJ),
+          "<br>Kode:", ifelse(is.na(map_data$kodekab) | map_data$kodekab == "", "N/A", map_data$kodekab),
+          "<br>", var, ":", round(map_data[[var]], 2)
+        )
+        
+        # Buat peta dengan error handling untuk setiap komponen
+        p <- ggplot(map_data) + 
+          geom_sf(aes(fill = .data[[var]], text = hover_text), 
+                  color = "white", size = 0.1) +
+          scale_fill_gradientn(colors = c("#0066CC", "#66B2FF", "#FFFF66", "#FF9933", "#CC0000"), 
+                               na.value = "grey85",
+                               name = var,
+                               guide = guide_colorbar(title.position = "top", title.hjust = 0.5)) +
+          labs(title = paste("Distribusi Spasial:", var),
+               subtitle = "Hover pada wilayah untuk melihat detail informasi") +
           theme_void() +
-          theme(plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
-                plot.subtitle = element_text(hjust = 0.5, size = 10),
-                legend.position = "bottom")
-        ggplotly(p, tooltip = "text")
+          theme(
+            plot.title = element_text(hjust = 0.5, size = 14, face = "bold", margin = margin(b = 5)),
+            plot.subtitle = element_text(hjust = 0.5, size = 10, color = "grey40", margin = margin(b = 10)),
+            legend.position = "bottom",
+            legend.key.width = unit(1.5, "cm"),
+            legend.key.height = unit(0.4, "cm"),
+            panel.background = element_rect(fill = "white", color = NA),
+            plot.background = element_rect(fill = "white", color = NA)
+          )
+        
+        ggplotly(p, tooltip = "text") %>%
+          layout(showlegend = TRUE) %>%
+          config(displayModeBar = TRUE, 
+                 modeBarButtonsToRemove = c("lasso2d", "select2d", "autoScale2d"))
       }
     }, error = function(e) {
-      # Jika ada error dalam pembuatan peta
+      # Jika ada error dalam pembuatan peta, tampilkan pesan yang lebih informatif
+      error_msg <- if(grepl("NAMOBJ", e$message)) {
+        "Error: Kolom nama daerah tidak ditemukan\nMenggunakan data default untuk visualisasi"
+      } else {
+        paste("Error dalam membuat peta:", substr(e$message, 1, 100))
+      }
+      
       plot_ly() %>%
-        add_text(x = 0.5, y = 0.5, text = paste("Error dalam membuat peta:\n", e$message), 
+        add_text(x = 0.5, y = 0.5, text = error_msg, 
                  textfont = list(size = 12, color = "red")) %>%
         layout(title = paste("Peta distribusi dari", var),
                xaxis = list(visible = FALSE, range = c(0, 1)),
@@ -1157,64 +1227,134 @@ server <- function(input, output, session) {
   output$prop_test_error <- renderText("")
   
   output$prop_var_interpretation <- renderText({
-    # Interpretasi untuk uji proporsi
-    prop_interpretation <- if(input$var_prop != "") {
+    # INTERPRETASI UJI PROPORSI (Selalu ditampilkan)
+    prop_interpretation <- if(input$var_prop != "" && input$var_prop != "Tidak Ada") {
       tryCatch({
         tab <- table(cleaned_data()[[input$var_prop]])
         if (length(tab) < 2) stop("Variabel harus memiliki setidaknya dua level")
         prop_result <- prop.test(tab[1], sum(tab), p = input$p0_prop)
         p_val <- prop_result$p.value
         prop_observed <- tab[1] / sum(tab)
+        
+        # Interpretasi berdasarkan p-value
+        significance_msg <- if(p_val <= 0.001) {
+          "sangat signifikan (p ≤ 0.001)"
+        } else if(p_val <= 0.01) {
+          "signifikan (p ≤ 0.01)"
+        } else if(p_val <= 0.05) {
+          "signifikan pada α = 0.05"
+        } else {
+          "tidak signifikan (p > 0.05)"
+        }
+        
         paste(
-          "INTERPRETASI UJI PROPORSI:\n",
-          get_clean_status_text(),
-          "Uji proporsi untuk variabel kategorik", input$var_prop, "terhadap proporsi hipotesis", input$p0_prop, 
-          "menghasilkan p-value =", round(p_val, 4), ".",
-          ifelse(p_val > 0.05, 
-                 paste("Karena p-value > 0.05, proporsi tidak berbeda secara signifikan dari", input$p0_prop, "."),
-                 paste("Karena p-value <= 0.05, proporsi berbeda secara signifikan dari", input$p0_prop, ".")),
-          "Proporsi teramati untuk kategori pertama adalah", round(prop_observed, 2), 
-          "dengan distribusi kategori:", paste(names(tab), "=", tab, collapse = "; "), ".",
-          "Hasil ini menunjukkan", ifelse(p_val <= 0.05, 
-                                          "adanya perbedaan signifikan yang dapat memengaruhi interpretasi distribusi kategorik dalam konteks SoVI.",
-                                          "tidak adanya perbedaan signifikan, sehingga proporsi sesuai dengan hipotesis."),
-          "Untuk analisis lebih lanjut, pertimbangkan membuat variabel kategorik tambahan di tab 'Manajemen Data' atau memeriksa distribusi di tab 'Eksplorasi Data'."
+          "═══ INTERPRETASI UJI PROPORSI ═══\n",
+          "📊 Status Data:", get_clean_status_text(), "\n",
+          "🔍 Analisis: Uji proporsi untuk variabel kategorik", input$var_prop, "\n",
+          "📈 Hasil Statistik:",
+                     "   • P-value =", round(p_val, 4), "(", significance_msg, ")",
+          "   • Proporsi hipotesis (H₀) =", input$p0_prop,
+          "   • Proporsi teramati =", round(prop_observed, 4),
+                     "   • Distribusi kategori:", paste(names(tab), "=", tab, "(", round(tab/sum(tab)*100, 1), "%)", collapse = "; "), "\n",
+          "💡 Interpretasi:",
+          ifelse(p_val <= 0.05, 
+                 paste("   ✓ Terdapat perbedaan signifikan antara proporsi teramati dengan proporsi hipotesis."),
+                 paste("   ✗ Tidak terdapat perbedaan signifikan dari proporsi hipotesis.")),
+          "\n📋 Kesimpulan:",
+          ifelse(p_val <= 0.05,
+                 "   Data memberikan bukti yang cukup untuk menolak H₀. Proporsi populasi berbeda dari nilai yang dihipotesiskan.",
+                 "   Data tidak memberikan bukti yang cukup untuk menolak H₀. Proporsi populasi sesuai dengan hipotesis."),
+          "\n🔗 Implikasi SoVI: Hasil ini", 
+          ifelse(p_val <= 0.05, 
+                 "menunjukkan adanya ketidakseimbangan distribusi kategorik yang perlu dipertimbangkan dalam analisis kerentanan sosial.",
+                 "menunjukkan distribusi yang seimbang sesuai harapan untuk analisis kerentanan sosial.")
         )
       }, error = function(e) {
-        paste("INTERPRETASI UJI PROPORSI: Error -", e$message)
+        paste(
+          "═══ INTERPRETASI UJI PROPORSI ═══\n",
+          "❌ Status: Error dalam pengujian\n",
+          "📝 Detail Error:", e$message, "\n",
+          "💡 Saran: Pastikan variabel kategorik memiliki minimal 2 kategori dan data tidak kosong."
+        )
       })
     } else {
-      "INTERPRETASI UJI PROPORSI: Belum tersedia - Pilih variabel kategorik/faktor untuk melakukan uji proporsi. Buat variabel faktor di tab 'Manajemen Data' jika belum tersedia."
+      paste(
+        "═══ INTERPRETASI UJI PROPORSI ═══\n",
+        "⏳ Status: Belum tersedia\n",
+        "📋 Persyaratan: Pilih variabel kategorik/faktor pada dropdown di atas\n",
+        "🔧 Cara Setup:",
+        "   1. Buka tab 'Manajemen Data'",
+        "   2. Pilih variabel numerik untuk dikategorikan",
+        "   3. Tentukan jumlah kategori (2-10)",
+        "   4. Klik 'Kategorisasi'",
+        "   5. Kembali ke tab ini dan pilih variabel faktor yang baru dibuat",
+        "\n💡 Contoh: Kategorikan variabel pendapatan menjadi 'Rendah', 'Sedang', 'Tinggi'"
+      )
     }
     
-    # Interpretasi untuk uji varians
-    var_interpretation <- if(input$group_var != "") {
+    # INTERPRETASI UJI VARIANS (Selalu ditampilkan, terlepas dari status uji proporsi)
+    var_interpretation <- if(input$group_var != "" && input$group_var != "Tidak Ada") {
       tryCatch({
         group_data <- as.factor(cleaned_data()[[input$group_var]])
         if (nlevels(group_data) < 2) stop("Grup harus memiliki setidaknya dua level")
         var_result <- var.test(cleaned_data()[[input$var_var]] ~ group_data)
         p_val <- var_result$p.value
         group_sd <- tapply(cleaned_data()[[input$var_var]], group_data, sd, na.rm = TRUE)
+        group_var_vals <- tapply(cleaned_data()[[input$var_var]], group_data, var, na.rm = TRUE)
         stats <- summary(cleaned_data()[[input$var_var]])
+        
+        # Rasio varians untuk interpretasi praktis
+        var_ratio <- max(group_var_vals, na.rm = TRUE) / min(group_var_vals, na.rm = TRUE)
+        
+        # Interpretasi berdasarkan p-value dan rasio varians
+        homogeneity_status <- if(p_val <= 0.05) {
+          if(var_ratio > 4) "sangat heterogen" else "heterogen"
+        } else {
+          if(var_ratio > 2) "cenderung heterogen" else "homogen"
+        }
+        
         paste(
-          "\n\nINTERPRETASI UJI VARIANS:\n",
-          "Uji varians untuk variabel", input$var_var, "berdasarkan grup", input$group_var, 
-          "menghasilkan p-value =", round(p_val, 4), ".",
-          ifelse(p_val > 0.05, 
-                 paste("Karena p-value > 0.05, varians antar grup dianggap sama."),
-                 paste("Karena p-value <= 0.05, varians antar grup berbeda secara signifikan.")),
-          "Simpangan baku grup:", paste(names(group_sd), "=", round(group_sd, 2), collapse = "; "), ".",
-          "Rentang data keseluruhan dari", round(stats[1], 2), "hingga", round(stats[6], 2), ".",
-          "Hasil ini menunjukkan", ifelse(p_val <= 0.05, 
-                                          "adanya perbedaan variabilitas antar grup yang dapat memengaruhi analisis lebih lanjut.",
-                                          "tidak adanya perbedaan variabilitas, mendukung asumsi homogenitas untuk uji t dua sampel atau ANOVA."),
-          "Periksa distribusi data di tab 'Eksplorasi Data' untuk memahami pola variabilitas lebih lanjut."
+          "\n\n═══ INTERPRETASI UJI VARIANS ═══\n",
+          "🔍 Analisis: Uji kesamaan varians (F-test) untuk variabel", input$var_var, "berdasarkan", input$group_var, "\n",
+          "📈 Hasil Statistik:",
+          "   • P-value =", round(p_val, 4),
+          "   • Rasio varians =", round(var_ratio, 2),
+          "   • Status homogenitas:", homogeneity_status, "\n",
+          "📊 Statistik Deskriptif per Grup:",
+          paste("   •", names(group_sd), ": SD =", round(group_sd, 3), ", Var =", round(group_var_vals, 3), collapse = "\n"), "\n",
+          "   • Range keseluruhan:", round(stats[1], 2), "-", round(stats[6], 2), "\n",
+          "💡 Interpretasi:",
+          ifelse(p_val <= 0.05,
+                 "   ✓ Varians antar grup berbeda secara signifikan (asumsi homogenitas tidak terpenuhi)",
+                 "   ✓ Varians antar grup tidak berbeda secara signifikan (asumsi homogenitas terpenuhi)"), "\n",
+          "📋 Implikasi Analitik:",
+          ifelse(p_val <= 0.05,
+                 "   ⚠️  Gunakan uji non-parametrik atau transformasi data untuk analisis selanjutnya",
+                 "   ✓ Dapat melanjutkan dengan uji parametrik (t-test, ANOVA)"), "\n",
+          "🔗 Konteks SoVI:",
+          ifelse(p_val <= 0.05,
+                 "   Variabilitas yang berbeda antar grup menunjukkan heterogenitas karakteristik sosial-ekonomi",
+                 "   Variabilitas yang seragam menunjukkan konsistensi karakteristik dalam setiap kelompok")
         )
       }, error = function(e) {
-        paste("\n\nINTERPRETASI UJI VARIANS: Error -", e$message)
+        paste(
+          "\n\n═══ INTERPRETASI UJI VARIANS ═══\n",
+          "❌ Status: Error dalam pengujian\n",
+          "📝 Detail Error:", e$message, "\n",
+          "💡 Saran: Pastikan variabel faktor memiliki minimal 2 level dan data numerik tidak kosong."
+        )
       })
     } else {
-      "\n\nINTERPRETASI UJI VARIANS: Belum tersedia - Pilih variabel faktor di dropdown 'Pilih Grup' untuk uji varians. Buat variabel faktor di tab 'Manajemen Data' jika belum tersedia."
+      paste(
+        "\n\n═══ INTERPRETASI UJI VARIANS ═══\n",
+        "⏳ Status: Belum tersedia\n",
+        "📋 Persyaratan: Pilih variabel faktor untuk pengelompokan\n",
+        "🔧 Cara Setup:",
+        "   1. Pastikan variabel numerik sudah dipilih untuk diuji",
+        "   2. Pilih variabel faktor pada dropdown 'Pilih Grup'",
+        "   3. Jika belum ada variabel faktor, buat di tab 'Manajemen Data'",
+        "\n💡 Tujuan: Menguji apakah variabilitas sama antar kelompok (asumsi penting untuk ANOVA dan t-test)"
+      )
     }
     
     paste(prop_interpretation, var_interpretation)
